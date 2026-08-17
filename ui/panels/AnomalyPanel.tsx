@@ -22,7 +22,8 @@ import {
 } from "../utils/dqlBuilder";
 import { useEndpointMetricCoverage } from "../hooks/useEndpointMetricCoverage";
 import { ENTITY_TYPE_BY_KEY } from "../constants/entityTypes";
-import type { ActionResult } from "../types";
+import { useCreateAction, settingsObjectId } from "../hooks/useCreateAction";
+import { Callout } from "../components/Callout";
 
 const SCHEMA_ID = "builtin:davis.anomaly-detectors";
 
@@ -94,8 +95,6 @@ export const AnomalyPanel: React.FC<{ startStep: number }> = ({ startStep }) => 
   const [violatingSamples, setViolatingSamples] = useState(3);
   const [slidingWindow, setSlidingWindow] = useState(5);
   const [dealertingSamples, setDealertingSamples] = useState(5);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ActionResult | null>(null);
 
   useEffect(() => {
     setMetricKey(singleType ? defaultMetricFor(singleType) : "");
@@ -194,31 +193,17 @@ export const AnomalyPanel: React.FC<{ startStep: number }> = ({ startStep }) => 
 
   const ready = !!payload && !windowInvalid && (spanMode || !!metricKey);
 
-  const create = async () => {
-    if (!payload) return;
-    setBusy(true);
-    setResult(null);
-    try {
-      const res = await settingsObjectsClient.postSettingsObjects({ body: payload });
-      const first = Array.isArray(res) ? res[0] : undefined;
-      const objectId = (first as { objectId?: string } | undefined)?.objectId;
-      setResult({
-        ok: true,
-        title: "Anomaly detector created",
-        detail: objectId
-          ? `Object id: ${objectId}. Open the Anomaly Detection app to review it.`
-          : "Open the Anomaly Detection app to review it.",
-      });
-    } catch (err) {
-      setResult({
-        ok: false,
-        title: "Failed to create anomaly detector",
-        detail: err instanceof Error ? err.message : JSON.stringify(err),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const { busy, result, execute: create } = useCreateAction({
+    run: () => settingsObjectsClient.postSettingsObjects({ body: payload! }),
+    successTitle: "Anomaly detector created",
+    failureTitle: "Failed to create anomaly detector",
+    describe: (res) => {
+      const objectId = settingsObjectId(res);
+      return objectId
+        ? `Object id: ${objectId}. Open the Anomaly Detection app to review it.`
+        : "Open the Anomaly Detection app to review it.";
+    },
+  });
 
   if (!singleType) {
     return (
@@ -255,15 +240,7 @@ export const AnomalyPanel: React.FC<{ startStep: number }> = ({ startStep }) => 
           )}
 
           {metricsUnusable && (
-            <div
-              style={{
-                background: Colors.Background.Field.Warning.Default,
-                border: `1px solid ${Colors.Border.Warning.Default}`,
-                borderRadius: 6,
-                padding: "12px 16px",
-              }}
-            >
-              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Default, lineHeight: 1.6 }}>
+            <Callout tone="warning">
                 <strong>
                   {coverage.missing.length} of {endpointNames.length} selected endpoint
                   {endpointNames.length === 1 ? " has" : "s have"} no metric series.
@@ -289,24 +266,14 @@ export const AnomalyPanel: React.FC<{ startStep: number }> = ({ startStep }) => 
                 <br />
                 Until either is in place, the detector below reads <strong>spans</strong>, which
                 covers every endpoint but re-scans on each evaluation.
-              </Text>
-            </div>
+              </Callout>
           )}
 
           {isEndpoint && !coverage.isLoading && coverage.allCovered && endpointNames.length > 0 && (
-            <div
-              style={{
-                background: Colors.Background.Field.Success.Default,
-                border: `1px solid ${Colors.Border.Success.Default}`,
-                borderRadius: 6,
-                padding: "12px 16px",
-              }}
-            >
-              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Default, lineHeight: 1.6 }}>
+            <Callout tone="success">
                 All selected endpoints have their own metric series — a metric-based detector will
                 work and is far cheaper to run.
-              </Text>
-            </div>
+              </Callout>
           )}
 
           {isEndpoint && (

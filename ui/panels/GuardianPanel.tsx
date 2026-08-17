@@ -16,6 +16,8 @@ import { useSelection } from "../context/SelectionContext";
 import { useSlos } from "../hooks/useSlos";
 import { templatesFor, type SliTemplate } from "../utils/dqlBuilder";
 import { ENTITY_TYPE_BY_KEY } from "../constants/entityTypes";
+import { useCreateAction, settingsObjectId } from "../hooks/useCreateAction";
+import { Callout } from "../components/Callout";
 import {
   buildGuardianPayload,
   guardianProblems,
@@ -35,7 +37,6 @@ import {
   CRON_PRESETS,
   type TriggerKind,
 } from "../utils/workflow";
-import type { ActionResult } from "../types";
 
 const OPERATORS: { value: ComparisonOperator; label: string }[] = [
   { value: "GREATER_THAN_OR_EQUAL", label: "≥ target (higher is better)" },
@@ -137,9 +138,6 @@ export const GuardianPanel: React.FC<{ startStep: number }> = ({ startStep }) =>
   const [description, setDescription] = useState("");
   const [tags, setTags] = useState("");
   const [eventKind, setEventKind] = useState("SDLC_EVENT");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ActionResult | null>(null);
-  const [validation, setValidation] = useState<ActionResult | null>(null);
 
   // Set once the guardian exists — the workflow needs its settings objectId.
   const [guardianId, setGuardianId] = useState<string | null>(null);
@@ -210,52 +208,34 @@ export const GuardianPanel: React.FC<{ startStep: number }> = ({ startStep }) =>
   const ready = problems.length === 0;
 
   /** Dry run — the Settings API validates the payload without storing it. */
-  const validate = async () => {
-    setBusy(true);
-    setValidation(null);
-    try {
-      await settingsObjectsClient.postSettingsObjects({ body: payload, validateOnly: true });
-      setValidation({
-        ok: true,
-        title: "Payload valid",
-        detail: "The Settings API accepted this guardian. Nothing was created.",
-      });
-    } catch (err) {
-      setValidation({
-        ok: false,
-        title: "Validation failed",
-        detail: err instanceof Error ? err.message : JSON.stringify(err),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const {
+    busy: validateBusy,
+    result: validation,
+    execute: validate,
+  } = useCreateAction({
+    run: () => settingsObjectsClient.postSettingsObjects({ body: payload, validateOnly: true }),
+    successTitle: "Payload valid",
+    failureTitle: "Validation failed",
+    describe: () => "The Settings API accepted this guardian. Nothing was created.",
+  });
 
-  const create = async () => {
-    setBusy(true);
-    setResult(null);
-    try {
+  const { busy: createBusy, result, execute: create } = useCreateAction({
+    run: async () => {
       const res = await settingsObjectsClient.postSettingsObjects({ body: payload });
-      const first = Array.isArray(res) ? res[0] : undefined;
-      const objectId = (first as { objectId?: string } | undefined)?.objectId;
+      // The workflow step needs this id, so capture it before the banner renders.
+      const objectId = settingsObjectId(res);
       if (objectId) setGuardianId(objectId);
-      setResult({
-        ok: true,
-        title: "Guardian created",
-        detail: `“${draft.name}” with ${objectives.length} objective${
-          objectives.length === 1 ? "" : "s"
-        }.${objectId ? ` Object id: ${objectId}.` : ""} Open the Site Reliability Guardian app to validate it.`,
-      });
-    } catch (err) {
-      setResult({
-        ok: false,
-        title: "Failed to create guardian",
-        detail: err instanceof Error ? err.message : JSON.stringify(err),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
+      return objectId;
+    },
+    successTitle: "Guardian created",
+    failureTitle: "Failed to create guardian",
+    describe: (objectId) =>
+      `“${draft.name}” with ${objectives.length} objective${
+        objectives.length === 1 ? "" : "s"
+      }.${objectId ? ` Object id: ${objectId}.` : ""} Open the Site Reliability Guardian app to validate it.`,
+  });
+
+  const busy = validateBusy || createBusy;
 
   if (!singleType) {
     return (
@@ -463,22 +443,13 @@ export const GuardianPanel: React.FC<{ startStep: number }> = ({ startStep }) =>
           )}
 
           {eventKind === "SDLC_EVENT" && (
-            <div
-              style={{
-                background: Colors.Background.Field.Warning.Default,
-                border: `1px solid ${Colors.Border.Warning.Default}`,
-                borderRadius: 6,
-                padding: "10px 14px",
-              }}
-            >
-              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Default, lineHeight: 1.55 }}>
+            <Callout tone="warning">
                 <strong>Lifecycle guardians need an extra permission.</strong> Each validation is
                 recorded as an SDLC event, so whoever validates it needs{" "}
                 <code>openpipeline:events.sdlc:ingest</code> — part of the Site Reliability Guardian
                 “Validator” role. Without it the guardian is created fine but validation fails with
                 “Could not start validation”.
-              </Text>
-            </div>
+              </Callout>
           )}
 
           <CodeBlock label="Request payload" collapsible code={JSON.stringify(payload, null, 2)} />
@@ -573,15 +544,7 @@ export const GuardianPanel: React.FC<{ startStep: number }> = ({ startStep }) =>
               )}
             />
 
-            <div
-              style={{
-                background: Colors.Background.Field.Warning.Default,
-                border: `1px solid ${Colors.Border.Warning.Default}`,
-                borderRadius: 6,
-                padding: "12px 16px",
-              }}
-            >
-              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Default, lineHeight: 1.6 }}>
+            <Callout tone="warning">
                 <strong>The platform reserves workflow creation for Dynatrace-built apps.</strong>{" "}
                 Declaring <code>automation:workflows:write</code> makes this app fail to install:
                 “Only apps that are provided by Dynatrace can use the
@@ -591,8 +554,7 @@ export const GuardianPanel: React.FC<{ startStep: number }> = ({ startStep }) =>
                 <br />
                 In the Workflows app: <strong>+ Workflow → ⋯ menu → Edit as code</strong>, then
                 replace the contents with the JSON above.
-              </Text>
-            </div>
+              </Callout>
 
             <Flex gap={12} flexWrap="wrap">
               <Button variant="accent" color="primary" onClick={() => openApp("dynatrace.automations")}>

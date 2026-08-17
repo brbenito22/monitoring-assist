@@ -23,7 +23,8 @@ import { useDql } from "../hooks/useDql";
 import { useEndpointMetricCoverage } from "../hooks/useEndpointMetricCoverage";
 import { templatesFor, type SliTemplate } from "../utils/dqlBuilder";
 import { ENTITY_TYPE_BY_KEY } from "../constants/entityTypes";
-import type { ActionResult } from "../types";
+import { useCreateAction, settingsObjectId } from "../hooks/useCreateAction";
+import { Callout } from "../components/Callout";
 
 /** Grail SLO service uses `now-<n><unit>`, not the classic `-7d`. */
 const TIMEFRAMES = [
@@ -67,11 +68,7 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
   const [timeframe, setTimeframe] = useState("now-7d");
   const [tags, setTags] = useState("");
   const [validateQuery, setValidateQuery] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ActionResult | null>(null);
   const [burnPreset, setBurnPreset] = useState<string | null>(null);
-  const [burnBusy, setBurnBusy] = useState(false);
-  const [burnResult, setBurnResult] = useState<ActionResult | null>(null);
 
   const template: SliTemplate | undefined =
     templates.find((t) => t.key === templateKey) ?? templates[0];
@@ -162,54 +159,29 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
     ];
   }, [preset, burnQuery, singleType, effectiveName, target]);
 
-  const createBurnAlert = async () => {
-    if (!burnPayload) return;
-    setBurnBusy(true);
-    setBurnResult(null);
-    try {
-      const res = await settingsObjectsClient.postSettingsObjects({ body: burnPayload });
-      const first = Array.isArray(res) ? res[0] : undefined;
-      const objectId = (first as { objectId?: string } | undefined)?.objectId;
-      setBurnResult({
-        ok: true,
-        title: "Burn-rate alert created",
-        detail: objectId ? `Object id: ${objectId}.` : "Open Anomaly Detection to review it.",
-      });
-    } catch (err) {
-      setBurnResult({
-        ok: false,
-        title: "Failed to create burn-rate alert",
-        detail: err instanceof Error ? err.message : JSON.stringify(err),
-      });
-    } finally {
-      setBurnBusy(false);
-    }
-  };
+  const {
+    busy: burnBusy,
+    result: burnResult,
+    execute: createBurnAlert,
+  } = useCreateAction({
+    run: () => settingsObjectsClient.postSettingsObjects({ body: burnPayload! }),
+    successTitle: "Burn-rate alert created",
+    failureTitle: "Failed to create burn-rate alert",
+    describe: (res) => {
+      const objectId = settingsObjectId(res);
+      return objectId ? `Object id: ${objectId}.` : "Open Anomaly Detection to review it.";
+    },
+  });
 
-  const create = async () => {
-    if (!payload) return;
-    setBusy(true);
-    setResult(null);
-    try {
-      const slo = await serviceLevelObjectivesClient.createSlo({ body: payload });
-      const id = (slo as { id?: string } | undefined)?.id;
-      setResult({
-        ok: true,
-        title: "SLO created",
-        detail: `"${payload.name}" — target ${target}%, warning ${warning}%, window ${timeframe}.${
-          id ? ` Id: ${id}.` : ""
-        } Open the Service-Level Objectives app to review it.`,
-      });
-    } catch (err) {
-      setResult({
-        ok: false,
-        title: "Failed to create SLO",
-        detail: err instanceof Error ? err.message : JSON.stringify(err),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const { busy, result, execute: create } = useCreateAction({
+    run: () => serviceLevelObjectivesClient.createSlo({ body: payload! }),
+    successTitle: "SLO created",
+    failureTitle: "Failed to create SLO",
+    describe: (slo) =>
+      `"${payload!.name}" — target ${target}%, warning ${warning}%, window ${timeframe}.${
+        slo?.id ? ` Id: ${slo.id}.` : ""
+      } Open the Service-Level Objectives app to review it.`,
+  });
 
   if (!singleType) {
     return (
@@ -260,15 +232,7 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
           </Text>
 
           {isEndpoint && !coverage.isLoading && coverage.missing.length > 0 && (
-            <div
-              style={{
-                background: Colors.Background.Field.Warning.Default,
-                border: `1px solid ${Colors.Border.Warning.Default}`,
-                borderRadius: 6,
-                padding: "12px 16px",
-              }}
-            >
-              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Default, lineHeight: 1.6 }}>
+            <Callout tone="warning">
                 <strong>
                   Metric-based templates are hidden: {coverage.missing.length} of{" "}
                   {endpointNames.length} selected endpoint
@@ -289,39 +253,20 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
                 <br />
                 <br />
                 Until then, the 🔍 span-based templates below cover every endpoint correctly.
-              </Text>
-            </div>
+              </Callout>
           )}
 
           {isEndpoint && !coverage.isLoading && coverage.allCovered && endpointNames.length > 0 && (
-            <div
-              style={{
-                background: Colors.Background.Field.Success.Default,
-                border: `1px solid ${Colors.Border.Success.Default}`,
-                borderRadius: 6,
-                padding: "12px 16px",
-              }}
-            >
-              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Default, lineHeight: 1.6 }}>
+            <Callout tone="success">
                 <strong>All {endpointNames.length} selected endpoints have their own metric
                 series</strong> — prefer the ⚡ templates: same result, 0 bytes scanned.
-              </Text>
-            </div>
+              </Callout>
           )}
 
           {template?.caveat && (
-            <div
-              style={{
-                background: Colors.Background.Field.Warning.Default,
-                border: `1px solid ${Colors.Border.Warning.Default}`,
-                borderRadius: 6,
-                padding: "10px 14px",
-              }}
-            >
-              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Default, lineHeight: 1.55 }}>
+            <Callout tone="warning">
                 {template.caveat}
-              </Text>
-            </div>
+              </Callout>
           )}
           {template?.thresholdLabel && (
             <div style={{ maxWidth: 340 }}>
@@ -494,22 +439,13 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
               ))}
             </Grid>
 
-            <div
-              style={{
-                background: Colors.Background.Field.Warning.Default,
-                border: `1px solid ${Colors.Border.Warning.Default}`,
-                borderRadius: 6,
-                padding: "10px 14px",
-              }}
-            >
-              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Default, lineHeight: 1.55 }}>
+            <Callout tone="warning">
                 <strong>Windows cap at 1 hour.</strong> Detector queries must run at{" "}
                 <code>interval: 1m</code> and <code>slidingWindow</code> maxes out at 60 samples.
                 Google's multi-window approach pairs the 1-hour fast burn with 6-hour and 3-day
                 slow-burn tiers — those can't be expressed as a detector and need a scheduled
                 workflow instead. What you get here is the fast-burn tier.
-              </Text>
-            </div>
+              </Callout>
 
             {preset && (
               <>

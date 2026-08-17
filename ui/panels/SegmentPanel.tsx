@@ -14,7 +14,7 @@ import { buildIncludes, includesPreview, buildSegmentPreviewQuery } from "../uti
 import { useDql } from "../hooks/useDql";
 import { TextAreaField } from "../components/Field";
 import { SegmentInspector } from "../components/SegmentInspector";
-import type { ActionResult } from "../types";
+import { useCreateAction } from "../hooks/useCreateAction";
 
 const DATA_OBJECTS = [
   {
@@ -39,8 +39,6 @@ export const SegmentPanel: React.FC<{ startStep: number }> = ({ startStep }) => 
   const [variableQuery, setVariableQuery] = useState("");
   const [previewQuery, setPreviewQuery] = useState<string | null>(null);
   const [previewObject, setPreviewObject] = useState<string>("");
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<ActionResult | null>(null);
 
   const preview = useDql<{ matches?: unknown }>(previewQuery);
 
@@ -72,26 +70,13 @@ export const SegmentPanel: React.FC<{ startStep: number }> = ({ startStep }) => 
 
   const ready = selected.length > 0 && dataObjects.length > 0;
 
-  const create = async () => {
-    setBusy(true);
-    setResult(null);
-    try {
-      const seg = await filterSegmentsClient.createFilterSegment({ body: payload });
-      setResult({
-        ok: true,
-        title: "Segment created",
-        detail: `"${payload.name}"${seg?.uid ? ` — uid ${seg.uid}` : ""}. It's now selectable in the segment picker across the platform.`,
-      });
-    } catch (err) {
-      setResult({
-        ok: false,
-        title: "Failed to create segment",
-        detail: err instanceof Error ? err.message : JSON.stringify(err),
-      });
-    } finally {
-      setBusy(false);
-    }
-  };
+  const { busy, result, execute: create } = useCreateAction({
+    run: () => filterSegmentsClient.createFilterSegment({ body: payload }),
+    successTitle: "Segment created",
+    failureTitle: "Failed to create segment",
+    describe: (seg) =>
+      `"${payload.name}"${seg?.uid ? ` — uid ${seg.uid}` : ""}. It's now selectable in the segment picker across the platform.`,
+  });
 
   return (
     <>
