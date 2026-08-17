@@ -1,0 +1,79 @@
+{
+  "environmentUrl": "https://<your-environment-id>.apps.dynatrace.com",
+  "build": {
+    "sourceRoot": "./"
+  },
+  "app": {
+    "id": "my.monitoring.assist",
+    "name": "Monitoring Assist",
+    "version": "2.19.0",
+    "description": "Select entities and generate DQL, SLOs, anomaly detectors and segments.",
+    "icon": "assets/icon.svg",
+    "scopes": [
+      {
+        "name": "storage:entities:read",
+        "comment": "List and search monitored entities in Grail"
+      },
+      {
+        "name": "storage:smartscape:read",
+        "comment": "Required by toSmartscapeId() and getNodeName(), used by the service SLI templates"
+      },
+      {
+        "name": "storage:buckets:read",
+        "comment": "Resolve available Grail buckets"
+      },
+      {
+        "name": "storage:logs:read",
+        "comment": "Preview log-based DQL for the selected entities"
+      },
+      {
+        "name": "storage:spans:read",
+        "comment": "Preview span-based DQL for the selected entities"
+      },
+      {
+        "name": "storage:metrics:read",
+        "comment": "Preview metric timeseries for the selected entities"
+      },
+      {
+        "name": "storage:events:read",
+        "comment": "Preview event-based DQL for the selected entities"
+      },
+      {
+        "name": "storage:system:read",
+        "comment": "Read platform system events"
+      },
+      {
+        "name": "settings:objects:read",
+        "comment": "Read existing anomaly detector configurations"
+      },
+      {
+        "name": "settings:objects:write",
+        "comment": "Create anomaly detectors (builtin:davis.anomaly-detectors)"
+      },
+      {
+        "name": "settings:schemas:read",
+        "comment": "Resolve the anomaly detector settings schema"
+      },
+      {
+        "name": "storage:filter-segments:read",
+        "comment": "List existing segments"
+      },
+      {
+        "name": "storage:filter-segments:write",
+        "comment": "Create segments from the current entity selection"
+      },
+      {
+        "name": "slo:slos:read",
+        "comment": "List existing service-level objectives (Grail SLO service)"
+      },
+      {
+        "name": "slo:slos:write",
+        "comment": "Create service-level objectives from the current entity selection"
+      },
+      {
+        "name": "automation:workflows:read",
+        "comment": "List and read workflows"
+      }
+    ]
+  }
+}

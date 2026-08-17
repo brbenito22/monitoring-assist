@@ -1,0 +1,24 @@
+# Dynatrace token / MCP config — NUNCA commitar
+.mcp.json
+.env
+.env.*
+!.env.example
+
+# Dependencias
+node_modules/
+
+# Build output
+dist/
+build/
+.dt-app/
+
+# TS
+*.tsbuildinfo
+
+# Editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,33 @@
+{
+  "name": "monitoring-assist",
+  "version": "1.0.0",
+  "description": "Monitoring Assist — select Dynatrace entities and generate DQL, SLOs, anomaly detectors and segments.",
+  "scripts": {
+    "start": "dt-app dev",
+    "build": "dt-app build",
+    "deploy": "dt-app deploy",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@dynatrace-sdk/app-environment": "^1",
+    "@dynatrace-sdk/client-classic-environment-v2": "^8",
+    "@dynatrace-sdk/client-filter-segment-management": "^1",
+    "@dynatrace-sdk/client-query": "^1",
+    "@dynatrace-sdk/client-service-level-objectives": "^1.0.0",
+    "@dynatrace-sdk/navigation": "^2",
+    "@dynatrace-sdk/react-hooks": "^1.14.2",
+    "@dynatrace/strato-components": "^1",
+    "@dynatrace/strato-components-preview": "^1",
+    "@dynatrace/strato-design-tokens": "^1",
+    "@dynatrace/strato-icons": "^2",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-intl": "^6"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "dt-app": "*",
+    "typescript": "^5.0.0"
+  }
+}
