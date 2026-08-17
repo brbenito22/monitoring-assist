@@ -6,8 +6,8 @@
   "app": {
     "id": "my.monitoring.assist",
     "name": "Monitoring Assist",
-    "version": "2.20.1",
-    "description": "Select entities and generate DQL, SLOs, anomaly detectors and segments.",
+    "version": "2.21.0",
+    "description": "Create segments, SLOs, anomaly detectors and guardians from selected entities.",
     "icon": "assets/icon.svg",
     "scopes": [
       {
