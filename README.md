@@ -109,30 +109,35 @@ The rule: **`utils/` is pure and testable, `hooks/` talk to Grail, `panels/` com
 ## Running it in your own environment
 
 Requires Node 18+ and access to a Dynatrace environment (Gen3 / Grail).
+**[DEPLOY.md](DEPLOY.md) has the full step-by-step**, including troubleshooting.
+
+The short version — **step 1 is not optional**:
 
 ```bash
-npm install
+git clone https://github.com/brbenito22/monitoring-assist.git && cd monitoring-assist
 ```
 
-Point it at your environment — edit `environmentUrl` in `app.config.json`:
+Edit `environmentUrl` in `app.config.json` and point it at your tenant:
 
 ```json
-{
-  "environmentUrl": "https://<your-environment-id>.apps.dynatrace.com"
-}
+{ "environmentUrl": "https://<TENANT_ID>.apps.dynatrace.com" }
 ```
 
-Then:
+The committed value is the placeholder `<YOUR_TENANT_ID>`, which is **not a valid URL** — so `npm run build` fails with
+`'environmentUrl' must contain a valid 'environmentUrl'` until you replace it. That's deliberate: it fails immediately with a
+clear message instead of letting a wrong tenant slip through. Keep the placeholder in commits; `git update-index --skip-worktree app.config.json`
+stops your local edit from ever being staged.
 
 ```bash
-npm run dev
+npm ci
 ```
 
 ```bash
 npm run deploy
 ```
 
-`npm run dev` opens a browser for SSO; `npm run deploy` builds, validates the manifest and installs the app.
+`npm start` runs a dev server with hot reload; `npm run deploy` builds, validates the manifest and installs the app. Both open a
+browser for SSO — tokens land in the gitignored `.dt-app/`.
 
 ### Required scopes
 

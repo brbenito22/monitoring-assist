@@ -1,5 +1,5 @@
 {
-  "environmentUrl": "https://<your-environment-id>.apps.dynatrace.com",
+  "environmentUrl": "https://<YOUR_TENANT_ID>.apps.dynatrace.com",
   "build": {
     "sourceRoot": "./"
   },
