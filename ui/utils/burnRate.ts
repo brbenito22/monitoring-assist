@@ -78,23 +78,29 @@ export interface BurnRateOpts {
 }
 
 /**
- * DQL producing `value` = current burn rate, ready for a static-threshold
- * detector set to ABOVE the preset's multiplier.
+ * The three alert measures the SRE Workbook builds on one error signal.
+ *
+ *  - `burn`         value = burn rate; alert ABOVE the preset multiplier
+ *  - `errorRate`    value = failed %;  alert ABOVE (100 − target)
+ *  - `availability` value = good %;    alert BELOW target
+ *
+ * Error rate and SLO target are the same line read from opposite ends; both
+ * ship because teams reason in one or the other, and an alert should read the
+ * way the team thinks.
  */
-export function buildBurnRateQuery({
-  entities,
-  typeKey,
-  target,
-  source,
-}: BurnRateOpts): string {
+export type SloMeasure = "burn" | "errorRate" | "availability";
+
+/**
+ * The per-source base: a 1-minute timeseries with `total` and `failures` for
+ * the selected entities. `interval: 1m` is what the detector API demands.
+ */
+function baseSignalQuery(
+  entities: SelectedEntity[],
+  typeKey: string,
+  source: BurnSource,
+): string | null {
   const ids = entities.map((e) => dqlString(e.id)).join(", ");
   const grail = entityField(typeKey);
-  const meta = ENTITY_TYPE_BY_KEY.get(typeKey);
-
-  // The fraction of requests the objective permits to fail.
-  const allowed = (100 - target) / 100;
-  if (allowed <= 0) return "// Target must be below 100% for a burn rate to be defined.";
-  const allowedStr = allowed.toPrecision(6);
 
   switch (source) {
     case "service": {
@@ -104,8 +110,7 @@ export function buildBurnRateQuery({
     failures = sum(dt.service.request.failure_count)
   },
   by: { dt.smartscape.service }, interval: 1m
-| filter in(dt.smartscape.service, { ${list} })
-| fieldsAdd value = (failures[] / total[]) / ${allowedStr}`;
+| filter in(dt.smartscape.service, { ${list} })`;
     }
 
     case "endpoint-metric":
@@ -114,8 +119,7 @@ export function buildBurnRateQuery({
     failures = sum(dt.service.request.failure_count)
   },
   by: { \`endpoint.name\` }, interval: 1m
-| filter in(\`endpoint.name\`, { ${ids} })
-| fieldsAdd value = (failures[] / total[]) / ${allowedStr}`;
+| filter in(\`endpoint.name\`, { ${ids} })`;
 
     case "endpoint-span":
       return `fetch spans
@@ -124,21 +128,56 @@ export function buildBurnRateQuery({
     total    = count(),
     failures = countIf(request.is_failed == true)
   },
-  by: { \`endpoint.name\` }, interval: 1m
-| fieldsAdd value = (failures[] / total[]) / ${allowedStr}`;
+  by: { \`endpoint.name\` }, interval: 1m`;
 
     case "frontend":
       return `timeseries {
-    total  = sum(dt.frontend.request.count),
-    errors = sum(dt.frontend.error.count)
+    total    = sum(dt.frontend.request.count),
+    failures = sum(dt.frontend.error.count)
   },
   by: { \`${grail}\` }, interval: 1m
-| filter in(\`${grail}\`, { ${ids} })
-| fieldsAdd value = (errors[] / total[]) / ${allowedStr}`;
+| filter in(\`${grail}\`, { ${ids} })`;
 
     default:
-      return `// No burn-rate mapping for ${meta?.label ?? typeKey}.`;
+      return null;
   }
+}
+
+/** DQL producing `value` for the chosen measure, ready for a static-threshold detector. */
+export function buildSloSignalQuery({
+  entities,
+  typeKey,
+  target,
+  source,
+  measure,
+}: BurnRateOpts & { measure: SloMeasure }): string {
+  const meta = ENTITY_TYPE_BY_KEY.get(typeKey);
+  const base = baseSignalQuery(entities, typeKey, source);
+  if (!base) return `// No signal mapping for ${meta?.label ?? typeKey}.`;
+
+  switch (measure) {
+    case "burn": {
+      // The fraction of requests the objective permits to fail.
+      const allowed = (100 - target) / 100;
+      if (allowed <= 0) return "// Target must be below 100% for a burn rate to be defined.";
+      return `${base}
+| fieldsAdd value = (failures[] / total[]) / ${allowed.toPrecision(6)}`;
+    }
+    case "errorRate":
+      return `${base}
+| fieldsAdd value = 100 * (failures[] / total[])`;
+    case "availability":
+      return `${base}
+| fieldsAdd value = 100 * (1 - (failures[] / total[]))`;
+  }
+}
+
+/**
+ * DQL producing `value` = current burn rate, ready for a static-threshold
+ * detector set to ABOVE the preset's multiplier.
+ */
+export function buildBurnRateQuery(opts: BurnRateOpts): string {
+  return buildSloSignalQuery({ ...opts, measure: "burn" });
 }
 
 /** Which burn source fits the selected entity type. */

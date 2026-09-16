@@ -6,7 +6,7 @@
   "app": {
     "id": "my.monitoring.assist",
     "name": "Monitoring Assist",
-    "version": "2.22.0",
+    "version": "2.23.0",
     "description": "Create segments, SLOs, anomaly detectors and guardians from selected entities.",
     "icon": "assets/icon.svg",
     "scopes": [

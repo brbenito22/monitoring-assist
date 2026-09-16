@@ -8,10 +8,12 @@ import { settingsObjectsClient } from "@dynatrace-sdk/client-classic-environment
 import { ChoiceCard as BurnChoice } from "../components/ChoiceCard";
 import {
   BURN_RATE_PRESETS,
-  buildBurnRateQuery,
+  buildSloSignalQuery,
   burnSourceFor,
   budgetConsumedPct,
+  type SloMeasure,
 } from "../utils/burnRate";
+import { buildStaticDetector } from "../utils/detector";
 import { SectionCard, StatusPill } from "../components/SectionCard";
 import { ChoiceCard } from "../components/ChoiceCard";
 import { CodeBlock } from "../components/CodeBlock";
@@ -37,6 +39,20 @@ import {
 
 /** Grail SLO service uses `now-<n><unit>`, not the classic `-7d`. */
 const TIMEFRAMES = SLO_WINDOWS;
+
+type AlertKind = "target" | "errorRate" | "burn";
+
+interface AlertPlanItem {
+  kind: AlertKind;
+  title: string;
+  payload: ReturnType<typeof buildStaticDetector>;
+}
+
+/**
+ * Target and error-rate detectors watch 5 minutes and need 3 to violate: quick
+ * enough to page on a real outage, slow enough to ignore a single bad minute.
+ */
+const ALERT_DEFAULTS = { window: 5, violating: 3 };
 
 export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
   const { selected, selectedTypeKeys } = useSelection();
@@ -120,71 +136,118 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
 
   const ready = !!payload && warning > enforced;
 
-  // ── Burn-rate alert ──────────────────────────────────────────────────────
-  const burnSource = singleType ? burnSourceFor(singleType, coverage.allCovered) : null;
+  // ── Alert pack (SRE Workbook, "Alerting on SLOs") ─────────────────────────
+  const signalSource = singleType ? burnSourceFor(singleType, coverage.allCovered) : null;
   const preset = BURN_RATE_PRESETS.find((p) => p.key === burnPreset);
   const sloWindowHours = windowHours(timeframe);
 
-  const burnQuery = useMemo(
-    () =>
-      burnSource && singleType
-        ? buildBurnRateQuery({ entities: selected, typeKey: singleType, target: enforced, source: burnSource })
-        : "",
-    [burnSource, singleType, selected, enforced],
-  );
+  // Which of the three alerts to create. Burn rate additionally needs a preset.
+  const [alertKinds, setAlertKinds] = useState<Set<AlertKind>>(() => new Set());
+  const toggleAlert = (k: AlertKind) =>
+    setAlertKinds((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
 
-  const burnPayload = useMemo(() => {
-    if (!preset || !burnQuery || !singleType) return null;
-    const t = `Burn rate ${preset.burnRate}× — ${effectiveName}`;
-    return [
-      {
-        schemaId: "builtin:davis.anomaly-detectors",
-        scope: "environment",
-        value: {
-          enabled: true,
-          title: t,
-          description: `Error budget burning at ${preset.burnRate}× the rate the ${enforced}% objective allows.`,
-          source: "Monitoring Assist",
-          executionSettings: { actor: null, queryOffset: null },
-          analyzer: {
-            name: "dt.statistics.ui.anomaly_detection.StaticThresholdAnomalyDetectionAnalyzer",
-            input: [
-              { key: "query", value: burnQuery },
-              { key: "threshold", value: String(preset.burnRate) },
-              { key: "alertCondition", value: "ABOVE" },
-              { key: "alertOnMissingData", value: "false" },
-              { key: "violatingSamples", value: String(preset.violatingSamples) },
-              { key: "slidingWindow", value: String(preset.windowSamples) },
-              { key: "dealertingSamples", value: String(preset.violatingSamples) },
-            ],
-          },
-          eventTemplate: {
-            properties: [
-              { key: "event.type", value: "CUSTOM_ALERT" },
-              { key: "event.name", value: t },
-              {
-                key: "event.description",
-                value: `Burning error budget ${preset.burnRate}× faster than sustainable for a ${enforced}% objective.`,
-              },
-            ],
-          },
-        },
-      },
-    ];
-  }, [preset, burnQuery, singleType, effectiveName, enforced]);
+  const signalQuery = (measure: SloMeasure) =>
+    signalSource && singleType
+      ? buildSloSignalQuery({
+          entities: selected,
+          typeKey: singleType,
+          target: enforced,
+          source: signalSource,
+          measure,
+        })
+      : "";
+
+  const burnQuery = useMemo(() => signalQuery("burn"), [signalSource, singleType, selected, enforced]);
+
+  /** Every alert the pack would create, in order, with its own payload. */
+  const alertPlan = useMemo<AlertPlanItem[]>(() => {
+    if (!signalSource || !singleType) return [];
+    const items: AlertPlanItem[] = [];
+
+    if (alertKinds.has("target")) {
+      items.push({
+        kind: "target",
+        title: `SLO target — ${effectiveName}`,
+        payload: buildStaticDetector({
+          title: `SLO target — ${effectiveName}`,
+          description: `Availability fell below the ${enforced}% objective for ${ALERT_DEFAULTS.violating} of the last ${ALERT_DEFAULTS.window} minutes.`,
+          query: signalQuery("availability"),
+          threshold: enforced,
+          condition: "BELOW",
+          violatingSamples: ALERT_DEFAULTS.violating,
+          slidingWindow: ALERT_DEFAULTS.window,
+        }),
+      });
+    }
+
+    if (alertKinds.has("errorRate")) {
+      const allowedPct = Math.round((100 - enforced) * 1000) / 1000;
+      items.push({
+        kind: "errorRate",
+        title: `Error rate — ${effectiveName}`,
+        payload: buildStaticDetector({
+          title: `Error rate — ${effectiveName}`,
+          description: `Error rate above the ${allowedPct}% the ${enforced}% objective allows, for ${ALERT_DEFAULTS.violating} of the last ${ALERT_DEFAULTS.window} minutes.`,
+          query: signalQuery("errorRate"),
+          threshold: allowedPct,
+          condition: "ABOVE",
+          violatingSamples: ALERT_DEFAULTS.violating,
+          slidingWindow: ALERT_DEFAULTS.window,
+        }),
+      });
+    }
+
+    if (alertKinds.has("burn") && preset) {
+      items.push({
+        kind: "burn",
+        title: `Burn rate ${preset.burnRate}× — ${effectiveName}`,
+        payload: buildStaticDetector({
+          title: `Burn rate ${preset.burnRate}× — ${effectiveName}`,
+          description: `Error budget burning at ${preset.burnRate}× the rate the ${enforced}% objective allows — the whole budget would last ${formatMinutes(timeToExhaustionMinutes(preset.burnRate, sloWindowHours))}.`,
+          query: burnQuery,
+          threshold: preset.burnRate,
+          condition: "ABOVE",
+          violatingSamples: preset.violatingSamples,
+          slidingWindow: preset.windowSamples,
+        }),
+      });
+    }
+    return items;
+  }, [alertKinds, preset, signalSource, singleType, selected, enforced, effectiveName, burnQuery, sloWindowHours]);
 
   const {
-    busy: burnBusy,
-    result: burnResult,
-    execute: createBurnAlert,
+    busy: alertsBusy,
+    result: alertsResult,
+    execute: createAlerts,
   } = useCreateAction({
-    run: () => settingsObjectsClient.postSettingsObjects({ body: burnPayload! }),
-    successTitle: "Burn-rate alert created",
-    failureTitle: "Failed to create burn-rate alert",
-    describe: (res) => {
-      const objectId = settingsObjectId(res);
-      return objectId ? `Object id: ${objectId}.` : "Open Anomaly Detection to review it.";
+    // Sequential on purpose: one failure must not hide which of the others landed.
+    run: async () => {
+      const outcomes: { title: string; objectId?: string; error?: string }[] = [];
+      for (const item of alertPlan) {
+        try {
+          const res = await settingsObjectsClient.postSettingsObjects({ body: item.payload });
+          outcomes.push({ title: item.title, objectId: settingsObjectId(res) });
+        } catch (err) {
+          outcomes.push({ title: item.title, error: err instanceof Error ? err.message : String(err) });
+        }
+      }
+      const failed = outcomes.filter((o) => o.error);
+      if (failed.length === outcomes.length) {
+        throw new Error(failed.map((f) => `${f.title}: ${f.error}`).join(" · "));
+      }
+      return outcomes;
     },
+    successTitle: "Alert pack created",
+    failureTitle: "Failed to create the alert pack",
+    describe: (outcomes) =>
+      outcomes
+        .map((o) => (o.error ? `✗ ${o.title} — ${o.error}` : `✓ ${o.title}`))
+        .join("\n"),
   });
 
   const { busy, result, execute: create } = useCreateAction({
@@ -454,67 +517,102 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
         </Flex>
       </SectionCard>
 
-      {/* ── Burn-rate alerting ───────────────────────────────────────────── */}
+      {/* ── Alert pack ───────────────────────────────────────────────────── */}
       <SectionCard
         step={startStep + 4}
-        title="Error-budget burn-rate alert (optional)"
-        subtitle="An SLO tells you where you stand; a burn-rate alert warns you before the budget is gone."
+        title="Alert pack (optional)"
+        subtitle="An SLO tells you where you stand; these are the alerts the SRE Workbook builds on top of it."
         aside={
-          !burnSource ? (
+          !signalSource ? (
             <StatusPill tone="warn">Not available</StatusPill>
-          ) : preset ? (
-            <StatusPill tone="ok">{preset.burnRate}× selected</StatusPill>
+          ) : alertPlan.length > 0 ? (
+            <StatusPill tone="ok">{alertPlan.length} selected</StatusPill>
           ) : (
             <StatusPill tone="neutral">Optional</StatusPill>
           )
         }
       >
-        {!burnSource ? (
+        {!signalSource ? (
           <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>
-            Burn-rate alerting needs a request-count / failure-count pair. Available for services,
+            These alerts need a request-count / failure-count pair. Available for services,
             endpoints and frontend applications.
           </Text>
         ) : (
-          <Flex flexDirection="column" gap={12}>
-            <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued, lineHeight: 1.6 }}>
-              Burn rate = observed error rate ÷ the {(100 - target).toFixed(2)}% this objective
-              allows. A rate of 1 spends the budget exactly over the window; higher means you run
-              out early.
-            </Text>
-
+          <Flex flexDirection="column" gap={16}>
             <Grid gridTemplateColumns="repeat(auto-fit, minmax(260px, 1fr))" gap={8}>
-              {BURN_RATE_PRESETS.map((p) => (
-                <BurnChoice
-                  key={p.key}
-                  selected={p.key === burnPreset}
-                  title={`${p.severity === "page" ? "🚨 " : "🎫 "}${p.label}`}
-                  description={`${p.description} Burns ~${budgetConsumedPct(p, sloWindowHours).toFixed(1)}% of the budget over its window; at this rate the whole budget lasts ${formatMinutes(timeToExhaustionMinutes(p.burnRate, sloWindowHours))}.`}
-                  onClick={() => setBurnPreset(p.key === burnPreset ? null : p.key)}
-                />
-              ))}
+              <ChoiceCard
+                multi
+                selected={alertKinds.has("target")}
+                title="SLO target"
+                description={`Fires when availability drops below ${enforced}% for ${ALERT_DEFAULTS.violating} of ${ALERT_DEFAULTS.window} minutes. Simple and readable: "we are breaching right now".`}
+                onClick={() => toggleAlert("target")}
+              />
+              <ChoiceCard
+                multi
+                selected={alertKinds.has("errorRate")}
+                title="Error rate"
+                description={`The same line read from the other end: fires when errors exceed the ${Math.round((100 - enforced) * 1000) / 1000}% the objective allows. For teams that think in error %, not availability %.`}
+                onClick={() => toggleAlert("errorRate")}
+              />
+              <ChoiceCard
+                multi
+                selected={alertKinds.has("burn")}
+                title="Burn rate"
+                description="How fast the budget is being spent, not whether the line was crossed. Catches slow bleeds the two above miss. Pick a tier below."
+                onClick={() => toggleAlert("burn")}
+              />
             </Grid>
 
-            <Callout tone="warning">
-                <strong>Windows cap at 1 hour.</strong> Detector queries must run at{" "}
-                <code>interval: 1m</code> and <code>slidingWindow</code> maxes out at 60 samples.
-                Google's multi-window approach pairs the 1-hour fast burn with 6-hour and 3-day
-                slow-burn tiers — those can't be expressed as a detector and need a scheduled
-                workflow instead. What you get here is the fast-burn tier.
-              </Callout>
+            {alertKinds.has("burn") && (
+              <Flex flexDirection="column" gap={12}>
+                <Text textStyle="base-emphasized">Burn-rate tier</Text>
+                <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued, lineHeight: 1.6 }}>
+                  Burn rate = observed error rate ÷ the {(100 - enforced).toFixed(2)}% this objective
+                  allows. A rate of 1 spends the budget exactly over the window; higher means you run
+                  out early.
+                </Text>
+                <Grid gridTemplateColumns="repeat(auto-fit, minmax(260px, 1fr))" gap={8}>
+                  {BURN_RATE_PRESETS.map((p) => (
+                    <BurnChoice
+                      key={p.key}
+                      selected={p.key === burnPreset}
+                      title={`${p.severity === "page" ? "🚨 " : "🎫 "}${p.label}`}
+                      description={`${p.description} Burns ~${budgetConsumedPct(p, sloWindowHours).toFixed(1)}% of the budget over its window; at this rate the whole budget lasts ${formatMinutes(timeToExhaustionMinutes(p.burnRate, sloWindowHours))}.`}
+                      onClick={() => setBurnPreset(p.key === burnPreset ? null : p.key)}
+                    />
+                  ))}
+                </Grid>
+                <Callout tone="warning">
+                  <strong>Windows cap at 1 hour.</strong> Detector queries must run at{" "}
+                  <code>interval: 1m</code> and <code>slidingWindow</code> maxes out at 60 samples.
+                  Google pairs the 1-hour fast burn with 6-hour and 3-day slow-burn tiers; those
+                  cannot be expressed as a detector and need a scheduled workflow instead. What you
+                  get here is the fast-burn tier.
+                </Callout>
+                {!preset && (
+                  <Text textStyle="small" style={{ color: Colors.Text.Warning.Default }}>
+                    Pick a tier. The burn-rate alert is skipped until you do.
+                  </Text>
+                )}
+              </Flex>
+            )}
 
-            {preset && (
+            {alertPlan.length > 0 && (
               <>
-                <ResultBanner result={burnResult} />
-                <CodeBlock label="Burn-rate query" code={burnQuery} />
-                <CodeBlock label="Detector payload" collapsible code={JSON.stringify(burnPayload, null, 2)} />
+                <ResultBanner result={alertsResult} />
+                {alertPlan.map((item) => (
+                  <CodeBlock
+                    key={item.kind}
+                    label={item.title}
+                    collapsible
+                    code={JSON.stringify(item.payload, null, 2)}
+                  />
+                ))}
                 <Flex>
-                  <Button
-                    variant="accent"
-                    color="primary"
-                    onClick={createBurnAlert}
-                    disabled={burnBusy}
-                  >
-                    {burnBusy ? "Creating…" : "Create burn-rate alert"}
+                  <Button variant="accent" color="primary" onClick={createAlerts} disabled={alertsBusy}>
+                    {alertsBusy
+                      ? "Creating…"
+                      : `Create ${alertPlan.length} alert${alertPlan.length === 1 ? "" : "s"}`}
                   </Button>
                 </Flex>
               </>
