@@ -13,6 +13,31 @@ export interface DqlState<T> {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Runs one DQL query to completion, polling while it is pending.
+ * Exported so callers that need N queries in sequence (the methodology sets)
+ * share the same execution path as the hook.
+ */
+export async function runDql<T = Record<string, unknown>>(
+  query: string,
+  isCancelled: () => boolean = () => false,
+): Promise<T[]> {
+  let res = await queryExecutionClient.queryExecute({ body: { query } });
+
+  for (let i = 0; i < MAX_POLLS && res.state !== "SUCCEEDED"; i++) {
+    if (!PENDING.has(res.state)) {
+      throw new Error(`Query ${res.state.toLowerCase()}`);
+    }
+    if (!res.requestToken) throw new Error("Query pending without a request token");
+    await sleep(POLL_MS);
+    if (isCancelled()) return [];
+    res = await queryExecutionClient.queryPoll({ requestToken: res.requestToken });
+  }
+
+  if (res.state !== "SUCCEEDED") throw new Error("Query timed out");
+  return (res.result?.records ?? []) as T[];
+}
+
 /** Runs a DQL query with async polling. Pass `null` to skip execution. */
 export function useDql<T = Record<string, unknown>>(query: string | null): DqlState<T> {
   const [state, setState] = useState<DqlState<T>>({ data: null, isLoading: !!query, error: null });
@@ -27,26 +52,9 @@ export function useDql<T = Record<string, unknown>>(query: string | null): DqlSt
 
     (async () => {
       try {
-        let res = await queryExecutionClient.queryExecute({ body: { query } });
-
-        for (let i = 0; i < MAX_POLLS && res.state !== "SUCCEEDED"; i++) {
-          if (!PENDING.has(res.state)) {
-            throw new Error(`Query ${res.state.toLowerCase()}`);
-          }
-          if (!res.requestToken) throw new Error("Query pending without a request token");
-          await sleep(POLL_MS);
-          if (cancelled) return;
-          res = await queryExecutionClient.queryPoll({ requestToken: res.requestToken });
-        }
-
+        const data = await runDql<T>(query, () => cancelled);
         if (cancelled) return;
-        if (res.state !== "SUCCEEDED") throw new Error("Query timed out");
-
-        setState({
-          data: (res.result?.records ?? []) as T[],
-          isLoading: false,
-          error: null,
-        });
+        setState({ data, isLoading: false, error: null });
       } catch (err) {
         if (cancelled) return;
         setState({

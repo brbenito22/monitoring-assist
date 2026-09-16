@@ -47,7 +47,10 @@ The payoff: every query the app can emit is produced by a pure function you can 
 | `dqlBuilder.ts` | Entity-field resolution, DQL escaping, the **16 SLI templates**, span/metric detector queries |
 | `segmentFilter.ts` | Serialised **parse tree** (AST) for filter segments — not DQL |
 | `segmentPayload.ts` | Wraps the AST into the segment create request |
-| `burnRate.ts` | Google-SRE burn-rate presets and their detector queries |
+| `burnRate.ts` | One per-source error signal → burn rate, error rate or availability (`buildSloSignalQuery`) |
+| `sloMath.ts` | Windows, safety margin, allowed downtime, time-to-exhaustion, cost — pure arithmetic |
+| `detector.ts` | Static-threshold Davis detector payload, with the 60-sample window clamp |
+| `methodologies.ts` | RED / USE / Golden Signals / RUM sets as lists of existing template keys |
 | `guardian.ts` | Guardian payload, validation problems, **single-value collapse** |
 | `workflow.ts` | Workflow payload that validates a guardian |
 
@@ -94,7 +97,7 @@ Each takes a single prop, `startStep`, so the wizard controls numbering:
 
 Each owns its form state, builds a payload, previews it in a collapsible `CodeBlock`, and calls exactly one write API.
 
-`SloPanel` is the largest: it creates the SLO **and** optionally a burn-rate detector, which is a second, independent write.
+`SloPanel` is a thin chooser over two flows: `SingleSloPanel` (one template, validate, objective, alert pack) and `SloSetPanel` (a methodology set — N objectives created sequentially, each validated first). Both write through the same SLO client; the alert pack writes detectors through Settings.
 
 ### `constants/`
 

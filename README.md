@@ -17,7 +17,13 @@ Built on the [Strato Design System](https://developer.dynatrace.com/design/about
 | **Anomaly detector** | `builtin:davis.anomaly-detectors` | Settings API |
 | **Guardian** | `app:dynatrace.site.reliability.guardian:guardians` | Settings API |
 
-Plus an optional **burn-rate alert** attached to a freshly created SLO, and a ready-to-paste **workflow payload** that validates a guardian.
+Plus, on the SLO side:
+
+- **Methodology sets** — RED, USE, Four Golden Signals, Frontend/RUM, Synthetic, Process health. Pick one and every objective the framework calls for is created together, with the same window, margin and naming. Each set says what it deliberately leaves out (traffic is a signal, not an objective).
+- **Alert pack** — SLO target, error rate and burn rate, the three alerts the SRE Workbook builds on one error signal, created in one go.
+- **Safety margin, allowed downtime and cost** — the enforced target is stricter than the published one; the error budget is shown as time (99.9% over 30 days = 43 min 12 s) and, given a revenue figure, as money.
+
+And a ready-to-paste **workflow payload** that validates a guardian.
 
 ---
 
@@ -96,7 +102,7 @@ ui/
   pages/Wizard.tsx     The single-page flow; owns the action choice
   panels/              One panel per action — the domain logic
   components/          Presentational, reusable, no API calls
-  utils/               Pure builders: DQL, segment AST, burn rate, guardian, workflow
+  utils/               Pure builders: DQL, segment AST, SLO math, signals, detector, methodologies, guardian, workflow
   hooks/               Data fetching against Grail
   constants/           Entity-type registry + action registry
   context/             Entity selection, shared across steps

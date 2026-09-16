@@ -14,6 +14,7 @@ import {
   type SloMeasure,
 } from "../utils/burnRate";
 import { buildStaticDetector } from "../utils/detector";
+import { SloSetPanel } from "./SloSetPanel";
 import { SectionCard, StatusPill } from "../components/SectionCard";
 import { ChoiceCard } from "../components/ChoiceCard";
 import { CodeBlock } from "../components/CodeBlock";
@@ -54,7 +55,8 @@ interface AlertPlanItem {
  */
 const ALERT_DEFAULTS = { window: 5, violating: 3 };
 
-export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
+/** The one-objective flow: template → validate → objective → create → alert pack. */
+const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
   const { selected, selectedTypeKeys } = useSelection();
 
   const singleType = selectedTypeKeys.length === 1 ? selectedTypeKeys[0] : null;
@@ -620,6 +622,51 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
           </Flex>
         )}
       </SectionCard>
+    </>
+  );
+};
+
+type SloMode = "single" | "set";
+
+/**
+ * Entry point for the SLO action. The first step decides between one
+ * hand-tuned objective and a methodology set (RED, USE, Golden Signals…);
+ * the two flows share nothing but the selection, so they live apart.
+ */
+export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
+  const [mode, setMode] = useState<SloMode | null>(null);
+
+  return (
+    <>
+      <SectionCard
+        step={startStep}
+        title="One objective, or a set?"
+        aside={
+          mode ? (
+            <StatusPill tone="ok">{mode === "set" ? "Methodology set" : "Single objective"}</StatusPill>
+          ) : (
+            <StatusPill tone="warn">Choose one</StatusPill>
+          )
+        }
+      >
+        <Grid gridTemplateColumns="repeat(auto-fit, minmax(280px, 1fr))" gap={8}>
+          <ChoiceCard
+            selected={mode === "single"}
+            title="Single objective"
+            description="Pick one SLI template, tune it, validate it, and optionally attach an alert pack."
+            onClick={() => setMode("single")}
+          />
+          <ChoiceCard
+            selected={mode === "set"}
+            title="Methodology set"
+            description="RED, USE, Four Golden Signals, RUM… Create every objective a framework calls for, consistently, in one go."
+            onClick={() => setMode("set")}
+          />
+        </Grid>
+      </SectionCard>
+
+      {mode === "single" && <SingleSloPanel startStep={startStep + 1} />}
+      {mode === "set" && <SloSetPanel startStep={startStep + 1} />}
     </>
   );
 };
