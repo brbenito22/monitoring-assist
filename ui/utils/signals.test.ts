@@ -168,3 +168,15 @@ test("VALET dashboard: each bound SLO adds two tiles running the SLO's own SLI, 
   const ids = Object.entries(doc.tiles).filter(([, t]) => t.query?.startsWith(indicator)).map(([id]) => id);
   assert.ok(ids.every((id) => doc.layouts[id].y >= 28));
 });
+
+test("VALET dashboard: every line chart keeps timeframe and interval — dropping them breaks the time axis", () => {
+  const doc = buildValetDashboard({ entities: services, typeKey: "service", typeLabel: "Services", title: "T" });
+  const lines = Object.values(doc.tiles).filter((t) => t.visualization === "lineChart");
+  assert.ok(lines.length >= 4);
+  for (const t of lines) {
+    // Either the query never projects, or it projects with the time columns kept.
+    const projects = /\|\s*fields\s/.test(t.query!);
+    assert.ok(!projects, `line chart "${t.title}" uses "| fields", which drops timeframe/interval`);
+    if (/fieldsKeep/.test(t.query!)) assert.ok(/timeframe,\s*interval/.test(t.query!), `"${t.title}" fieldsKeep must keep timeframe and interval`);
+  }
+});

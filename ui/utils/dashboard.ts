@@ -210,7 +210,7 @@ ${s.filter}`;
 | fields requests = t, availability, errorRate, failures = f`;
 
   add(single("Volume — requests", summary, "requests", [unit("requests", "unspecified", "count", null, 0)]), { x: 0, y: 3, w: 5, h: 4 });
-  add(single("Availability", summary, "availability", [unit("availability", "percentage", "percent", null, 3, "%")]), { x: 5, y: 3, w: 5, h: 4 });
+  add(single("Availability", summary, "availability", [unit("availability", "percentage", "percent", null, 2, "%")]), { x: 5, y: 3, w: 5, h: 4 });
   add(
     single(
       "Latency — p95",
@@ -248,7 +248,7 @@ ${s.name}`), { x: 0, y: 7, w: 12, h: 6 });
       `${base}
 | fieldsAdd availability = 100 * (1 - (failures[] / total[]))
 ${s.name}
-| fields name, availability`,
+| fieldsKeep name, availability, timeframe, interval`,
       [unit("availability", "percentage", "percent", null, 2, "%")],
     ),
     { x: 12, y: 7, w: 12, h: 6 },
@@ -260,7 +260,7 @@ ${s.name}
       `timeseries p95 = percentile(${s.latency}, 95), by: { ${s.by} }
 ${s.filter}
 ${s.name}
-| fields name, p95`,
+| fieldsKeep name, p95, timeframe, interval`,
       [unit("p95", "time", s.latencyUnit, "millisecond", 0)],
     ),
     { x: 0, y: 13, w: 12, h: 6 },
@@ -272,7 +272,7 @@ ${s.name}
       `${base}
 | fieldsAdd errorRate = 100 * (failures[] / total[])
 ${s.name}
-| fields name, errorRate`,
+| fieldsKeep name, errorRate, timeframe, interval`,
       [unit("errorRate", "percentage", "percent", null, 2, "%")],
     ),
     { x: 12, y: 13, w: 12, h: 6 },
@@ -321,7 +321,7 @@ ${s.name}
 | fieldsAdd entitySli = arrayAvg(sli)
 | summarize sli = min(entitySli)`,
           "sli",
-          [unit("sli", "percentage", "percent", null, 3, "%")],
+          [unit("sli", "percentage", "percent", null, 2, "%")],
         ),
         { x: 0, y, w: 6, h: 6 },
       );
