@@ -6,7 +6,7 @@
   "app": {
     "id": "my.monitoring.assist",
     "name": "Monitoring Assist",
-    "version": "2.28.0",
+    "version": "2.28.1",
     "description": "Create segments, SLOs, alerts, guardians and dashboards from selected entities.",
     "icon": "assets/icon.svg",
     "scopes": [

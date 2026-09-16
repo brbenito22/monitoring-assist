@@ -329,7 +329,7 @@ export const SloSetPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
             ))}
 
             <Flex>
-              <Button variant="default" onClick={validateAll} disabled={validating || payloads.length === 0}>
+              <Button variant="emphasized" onClick={validateAll} disabled={validating || payloads.length === 0}>
                 {validating ? "Validating…" : `Validate all ${payloads.length}`}
               </Button>
             </Flex>

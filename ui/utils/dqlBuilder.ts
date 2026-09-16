@@ -352,8 +352,8 @@ export const SLI_TEMPLATES: SliTemplate[] = [
   },
   {
     key: "span-latency",
-    label: "Endpoint performance (spans)",
-    description: "Share of spans completing under the threshold. Works per endpoint.",
+    label: "Request performance (spans)",
+    description: "Share of spans completing under the threshold. Measured on the service's spans, so it covers every request, not only key requests.",
     appliesTo: ["service", "service_method"],
     source: "scan",
     thresholdLabel: "Spans should complete within (ms)",
