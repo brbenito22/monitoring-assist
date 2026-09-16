@@ -25,14 +25,18 @@ import { templatesFor, type SliTemplate } from "../utils/dqlBuilder";
 import { ENTITY_TYPE_BY_KEY } from "../constants/entityTypes";
 import { useCreateAction, settingsObjectId } from "../hooks/useCreateAction";
 import { Callout } from "../components/Callout";
+import {
+  SLO_WINDOWS,
+  windowHours,
+  enforcedTarget,
+  allowedDowntimeMinutes,
+  timeToExhaustionMinutes,
+  downtimeCost,
+  formatMinutes,
+} from "../utils/sloMath";
 
 /** Grail SLO service uses `now-<n><unit>`, not the classic `-7d`. */
-const TIMEFRAMES = [
-  { value: "now-1d", label: "Last 1 day" },
-  { value: "now-7d", label: "Last 7 days" },
-  { value: "now-14d", label: "Last 14 days" },
-  { value: "now-30d", label: "Last 30 days" },
-];
+const TIMEFRAMES = SLO_WINDOWS;
 
 export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
   const { selected, selectedTypeKeys } = useSelection();
@@ -65,6 +69,10 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
   const [description, setDescription] = useState("");
   const [target, setTarget] = useState(99.5);
   const [warning, setWarning] = useState(99.8);
+  // Google's safety margin: enforce a stricter target than the one you publish.
+  const [safetyMargin, setSafetyMargin] = useState(0);
+  // Optional — turns the error budget into money ("Embracing Risk").
+  const [revenuePerHour, setRevenuePerHour] = useState(0);
   const [timeframe, setTimeframe] = useState("now-7d");
   const [tags, setTags] = useState("");
   const [validateQuery, setValidateQuery] = useState<string | null>(null);
@@ -89,6 +97,9 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
   const effectiveName =
     name || `${template?.label ?? "SLO"} — ${selected.length} ${meta?.label ?? "entities"}`;
 
+  // What the SLO actually enforces — the published number plus the margin.
+  const enforced = enforcedTarget(target, safetyMargin);
+
   const payload = useMemo(() => {
     if (!sliDql) return null;
     const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
@@ -97,26 +108,29 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
       ...(description ? { description } : {}),
       customSli: { indicator: sliDql },
       criteria: [
-        { timeframeFrom: timeframe, target, ...(warning > target ? { warning } : {}) },
+        {
+          timeframeFrom: timeframe,
+          target: enforced,
+          ...(warning > enforced ? { warning } : {}),
+        },
       ],
       ...(tagList.length ? { tags: tagList } : {}),
     };
-  }, [sliDql, effectiveName, description, timeframe, target, warning, tags]);
+  }, [sliDql, effectiveName, description, timeframe, enforced, warning, tags]);
 
-  const ready = !!payload && warning > target;
+  const ready = !!payload && warning > enforced;
 
   // ── Burn-rate alert ──────────────────────────────────────────────────────
   const burnSource = singleType ? burnSourceFor(singleType, coverage.allCovered) : null;
   const preset = BURN_RATE_PRESETS.find((p) => p.key === burnPreset);
-  const sloWindowHours =
-    { "now-1d": 24, "now-7d": 168, "now-14d": 336, "now-30d": 720 }[timeframe] ?? 168;
+  const sloWindowHours = windowHours(timeframe);
 
   const burnQuery = useMemo(
     () =>
       burnSource && singleType
-        ? buildBurnRateQuery({ entities: selected, typeKey: singleType, target, source: burnSource })
+        ? buildBurnRateQuery({ entities: selected, typeKey: singleType, target: enforced, source: burnSource })
         : "",
-    [burnSource, singleType, selected, target],
+    [burnSource, singleType, selected, enforced],
   );
 
   const burnPayload = useMemo(() => {
@@ -129,7 +143,7 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
         value: {
           enabled: true,
           title: t,
-          description: `Error budget burning at ${preset.burnRate}× the rate the ${target}% objective allows.`,
+          description: `Error budget burning at ${preset.burnRate}× the rate the ${enforced}% objective allows.`,
           source: "Monitoring Assist",
           executionSettings: { actor: null, queryOffset: null },
           analyzer: {
@@ -150,14 +164,14 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
               { key: "event.name", value: t },
               {
                 key: "event.description",
-                value: `Burning error budget ${preset.burnRate}× faster than sustainable for a ${target}% objective.`,
+                value: `Burning error budget ${preset.burnRate}× faster than sustainable for a ${enforced}% objective.`,
               },
             ],
           },
         },
       },
     ];
-  }, [preset, burnQuery, singleType, effectiveName, target]);
+  }, [preset, burnQuery, singleType, effectiveName, enforced]);
 
   const {
     busy: burnBusy,
@@ -178,7 +192,7 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
     successTitle: "SLO created",
     failureTitle: "Failed to create SLO",
     describe: (slo) =>
-      `"${payload!.name}" — target ${target}%, warning ${warning}%, window ${timeframe}.${
+      `"${payload!.name}" — target ${enforced}%, warning ${warning}%, window ${timeframe}.${
         slo?.id ? ` Id: ${slo.id}.` : ""
       } Open the Service-Level Objectives app to review it.`,
   });
@@ -330,13 +344,40 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
       <SectionCard step={startStep + 2} title="Set the objective">
         <Flex flexDirection="column" gap={16}>
           <Flex gap={12} flexWrap="wrap">
-            <KpiCard label="Target" value={`${target}%`} subLabel="what you commit to" colorVariant="positive" />
+            <KpiCard
+              label="Published target"
+              value={`${target}%`}
+              subLabel="what you tell customers"
+              colorVariant="positive"
+            />
+            <KpiCard
+              label="Enforced target"
+              value={`${enforced}%`}
+              subLabel={safetyMargin > 0 ? `+${safetyMargin} pp safety margin` : "no safety margin"}
+              colorVariant={safetyMargin > 0 ? "warning" : "default"}
+            />
             <KpiCard label="Warning" value={`${warning}%`} subLabel="early alert" colorVariant="warning" />
             <KpiCard
               label="Error budget"
-              value={`${(100 - target).toFixed(2)}%`}
+              value={`${(100 - enforced).toFixed(3).replace(/.?0+$/, "")}%`}
               subLabel={TIMEFRAMES.find((t) => t.value === timeframe)?.label.toLowerCase() ?? timeframe}
             />
+            <KpiCard
+              label="Allowed downtime"
+              value={formatMinutes(allowedDowntimeMinutes(enforced, sloWindowHours))}
+              subLabel="over the evaluation window"
+              colorVariant="critical"
+            />
+            {revenuePerHour > 0 && (
+              <KpiCard
+                label="Budget at risk"
+                value={downtimeCost(enforced, sloWindowHours, revenuePerHour).toLocaleString(undefined, {
+                  maximumFractionDigits: 0,
+                })}
+                subLabel="revenue exposed if the budget is fully spent"
+                colorVariant="critical"
+              />
+            )}
           </Flex>
 
           <Grid gridTemplateColumns="repeat(auto-fit, minmax(220px, 1fr))" gap={16}>
@@ -357,12 +398,26 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
               placeholder="team:platform, tier:gold"
               hint="Comma separated."
             />
+            <NumberField
+              label="Safety margin (pp)"
+              value={safetyMargin}
+              onChange={setSafetyMargin}
+              min={0}
+              hint="Enforce a stricter target than you publish, so you react before customers notice."
+            />
+            <NumberField
+              label="Revenue per hour (optional)"
+              value={revenuePerHour}
+              onChange={setRevenuePerHour}
+              min={0}
+              hint="Turns the error budget into money. Your estimate, any currency."
+            />
           </Grid>
 
-          {warning <= target && (
+          {warning <= enforced && (
             <Text textStyle="small" style={{ color: Colors.Text.Critical.Default }}>
-              Warning must be higher than target, otherwise it fires only after the objective is
-              already breached.
+              Warning must be higher than the enforced target ({enforced}%), otherwise it fires
+              only after the objective is already breached.
             </Text>
           )}
         </Flex>
@@ -433,7 +488,7 @@ export const SloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
                   key={p.key}
                   selected={p.key === burnPreset}
                   title={`${p.severity === "page" ? "🚨 " : "🎫 "}${p.label}`}
-                  description={`${p.description} Burns ~${budgetConsumedPct(p, sloWindowHours).toFixed(1)}% of the budget over its window.`}
+                  description={`${p.description} Burns ~${budgetConsumedPct(p, sloWindowHours).toFixed(1)}% of the budget over its window; at this rate the whole budget lasts ${formatMinutes(timeToExhaustionMinutes(p.burnRate, sloWindowHours))}.`}
                   onClick={() => setBurnPreset(p.key === burnPreset ? null : p.key)}
                 />
               ))}
