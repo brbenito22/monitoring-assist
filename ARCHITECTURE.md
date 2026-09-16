@@ -53,6 +53,9 @@ The payoff: every query the app can emit is produced by a pure function you can 
 | `methodologies.ts` | RED / USE / Golden Signals / RUM sets as lists of existing template keys |
 | `guardian.ts` | Guardian payload, validation problems, **single-value collapse** |
 | `workflow.ts` | Workflow payload that validates a guardian |
+| `keyRequests.ts` | Read-merge-write of `keyRequestNames` per service, with the update token |
+| `ownership.ts` | Team payload, identifier slug, the `dt.owner` tag |
+| `dashboard.ts` | VALET dashboard document (tiles + layouts) from validated queries |
 
 **`dqlBuilder.ts` is the centre of gravity.** An `SliTemplate` is a small record:
 
@@ -93,6 +96,7 @@ Each takes a single prop, `startStep`, so the wizard controls numbering:
 <SloPanel      startStep={3} />
 <AnomalyPanel  startStep={3} />
 <GuardianPanel startStep={3} />
+<DashboardPanel startStep={3} />
 ```
 
 Each owns its form state, builds a payload, previews it in a collapsible `CodeBlock`, and calls exactly one write API.
@@ -102,7 +106,7 @@ Each owns its form state, builds a payload, previews it in a collapsible `CodeBl
 ### `constants/`
 
 - **`entityTypes.ts`** — the registry. Each entry maps an entity type to its Grail source, display label, group and the field used to filter it. Adding an entity type is one entry here plus templates in `dqlBuilder`.
-- **`actions.tsx`** — the four actions, their icons, allowed entity types and the single-vs-multi-type rule.
+- **`actions.tsx`** — the five actions, their icons, allowed entity types and the single-vs-multi-type rule.
 
 ### `context/SelectionContext.tsx`
 

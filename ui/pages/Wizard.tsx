@@ -14,6 +14,7 @@ import { SegmentPanel } from "../panels/SegmentPanel";
 import { SloPanel } from "../panels/SloPanel";
 import { AnomalyPanel } from "../panels/AnomalyPanel";
 import { GuardianPanel } from "../panels/GuardianPanel";
+import { DashboardPanel } from "../panels/DashboardPanel";
 import { useSelection } from "../context/SelectionContext";
 import { ENTITY_TYPES } from "../constants/entityTypes";
 import { ACTIONS, actionMeta, type ActionKind } from "../constants/actions";
@@ -169,6 +170,7 @@ export const Wizard: React.FC = () => {
           {action === "slo" && <SloPanel startStep={3} />}
           {action === "anomaly" && <AnomalyPanel startStep={3} />}
           {action === "guardian" && <GuardianPanel startStep={3} />}
+          {action === "dashboard" && <DashboardPanel startStep={3} />}
         </>
       )}
 

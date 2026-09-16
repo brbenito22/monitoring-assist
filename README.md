@@ -16,11 +16,14 @@ Built on the [Strato Design System](https://developer.dynatrace.com/design/about
 | **SLO** | Grail SLO service | `@dynatrace-sdk/client-service-level-objectives` |
 | **Anomaly detector** | `builtin:davis.anomaly-detectors` | Settings API |
 | **Guardian** | `app:dynatrace.site.reliability.guardian:guardians` | Settings API |
+| **SLO dashboard** | Dashboard document (VALET template) | `@dynatrace-sdk/client-document` |
 
 Plus, on the SLO side:
 
 - **Methodology sets** — RED, USE, Four Golden Signals, Frontend/RUM, Synthetic, Process health. Pick one and every objective the framework calls for is created together, with the same window, margin and naming. Each set says what it deliberately leaves out (traffic is a signal, not an objective).
 - **Alert pack** — SLO target, error rate and burn rate, the three alerts the SRE Workbook builds on one error signal, created in one go.
+- **Key requests in place** — when selected endpoints have no metric series, the warning comes with a button that marks them as key requests on their services (merging into whatever is already configured), so the ⚡ zero-byte templates become available.
+- **Ownership** — pick or create an ownership team; its identifier is stamped as `dt.owner` on the SLO and on every alert.
 - **Safety margin, allowed downtime and cost** — the enforced target is stricter than the published one; the error budget is shown as time (99.9% over 30 days = 43 min 12 s) and, given a revenue figure, as money.
 
 And a ready-to-paste **workflow payload** that validates a guardian.
@@ -32,7 +35,7 @@ And a ready-to-paste **workflow payload** that validates a guardian.
 One page, numbered steps, nothing hidden behind tabs:
 
 ```
-1  What do you want to create?     Segment · SLO · Anomaly detector · Guardian
+1  What do you want to create?     Segment · SLO · Anomaly detector · Guardian · Dashboard
 2  Which entities?                 searchable picker across ~20 entity types
 3+ Action-specific configuration    templates, thresholds, validation, payload preview
 ```
@@ -87,6 +90,10 @@ Things the documentation doesn't say, or says wrongly. Each was verified against
 **Lifecycle guardians need an ingest permission.** Validating one records an SDLC event, so the validating user needs `openpipeline:events.sdlc:ingest` — part of the SRG **Validator** role. Without it the guardian is created fine and validation fails with *"Could not start validation"*.
 
 **Custom apps cannot create workflows.** Declaring `automation:workflows:write` makes the app fail to install: *"Only apps that are provided by Dynatrace can use the `automation:workflows:write` scope."* `read` is allowed; `write` and `run` are not. The app therefore **builds and displays** the workflow payload for you to paste into Workflows (**+ Workflow → ⋯ → Edit as code**) rather than pretending it can create it.
+
+**No record-based detector on this tenant.** `builtin:davis.anomaly-detectors` v1.0.16 and the Davis analyzer catalogue expose exactly three analyzers — static threshold, auto-adaptive, seasonal. Multiwindow multi-burn-rate therefore cannot be a detector here; `scripts/mwmbr-workflow.mjs` builds it as a scheduled workflow instead.
+
+**Dashboards are documents.** `document:documents:write` *is* allowed for custom apps (unlike `automation:workflows:write`). The document format — `version: 16`, `tiles` keyed by id, `layouts` on a 24-column grid, `unitsOverrides` — was read from a stored dashboard, and the generated VALET document was created and read back through the API before shipping.
 
 **Endpoints may not be entities.** With Service Detection v1 and no enhanced endpoints, only manually flagged *key requests* emit per-endpoint metrics; everything else collapses into `NON_KEY_REQUESTS`. The app probes coverage **per selected endpoint** — a tenant can have a handful of key requests while the endpoints you actually picked have none.
 
@@ -149,7 +156,7 @@ browser for SSO — tokens land in the gitignored `.dt-app/`.
 
 Declared in `app.config.json` — the platform grants them at install time, so there's nothing to configure by hand:
 
-`storage:entities:read` · `storage:smartscape:read` · `storage:buckets:read` · `storage:logs:read` · `storage:spans:read` · `storage:metrics:read` · `storage:events:read` · `storage:system:read` · `settings:objects:read` · `settings:objects:write` · `settings:schemas:read` · `storage:filter-segments:read` · `storage:filter-segments:write` · `slo:slos:read` · `slo:slos:write` · `automation:workflows:read`
+`storage:entities:read` · `storage:smartscape:read` · `storage:buckets:read` · `storage:logs:read` · `storage:spans:read` · `storage:metrics:read` · `storage:events:read` · `storage:system:read` · `settings:objects:read` · `settings:objects:write` · `settings:schemas:read` · `storage:filter-segments:read` · `storage:filter-segments:write` · `slo:slos:read` · `slo:slos:write` · `automation:workflows:read` · `document:documents:read` · `document:documents:write`
 
 ### Environment differences to expect
 

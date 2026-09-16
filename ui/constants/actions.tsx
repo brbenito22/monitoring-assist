@@ -1,7 +1,7 @@
 import React from "react";
-import { FilterIcon, CheckmarkIcon, AnalyticsIcon, CertifiedIcon } from "@dynatrace/strato-icons";
+import { FilterIcon, CheckmarkIcon, AnalyticsIcon, CertifiedIcon, GridIcon } from "@dynatrace/strato-icons";
 
-export type ActionKind = "segment" | "slo" | "anomaly" | "guardian";
+export type ActionKind = "segment" | "slo" | "anomaly" | "guardian" | "dashboard";
 
 export interface ActionMeta {
   key: ActionKind;
@@ -66,6 +66,15 @@ export const ACTIONS: ActionMeta[] = [
       "process_group_instance",
       "cloud_application",
     ],
+    singleTypeOnly: true,
+  },
+  {
+    key: "dashboard",
+    title: "SLO dashboard",
+    description:
+      "A dashboard from a template — VALET: volume, availability, latency, errors, tickets — with every query already validated.",
+    icon: <GridIcon size={ICON_SIZE} />,
+    allowedTypeKeys: ["service", "service_method", "endpoint", "application", "application_method"],
     singleTypeOnly: true,
   },
 ];

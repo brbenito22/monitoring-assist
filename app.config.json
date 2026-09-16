@@ -6,8 +6,8 @@
   "app": {
     "id": "my.monitoring.assist",
     "name": "Monitoring Assist",
-    "version": "2.25.0",
-    "description": "Create segments, SLOs, anomaly detectors and guardians from selected entities.",
+    "version": "2.26.0",
+    "description": "Create segments, SLOs, alerts, guardians and dashboards from selected entities.",
     "icon": "assets/icon.svg",
     "scopes": [
       {
@@ -73,6 +73,14 @@
       {
         "name": "automation:workflows:read",
         "comment": "List and read workflows"
+      },
+      {
+        "name": "document:documents:read",
+        "comment": "List existing dashboards"
+      },
+      {
+        "name": "document:documents:write",
+        "comment": "Create SLO dashboards from templates"
       }
     ]
   }
