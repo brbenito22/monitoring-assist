@@ -39,7 +39,12 @@ export async function runDql<T = Record<string, unknown>>(
 }
 
 /** Runs a DQL query with async polling. Pass `null` to skip execution. */
-export function useDql<T = Record<string, unknown>>(query: string | null): DqlState<T> {
+/**
+ * `refreshKey` re-runs the same query when it changes — for probes whose
+ * answer can change while the page is open, like metric coverage right after
+ * an endpoint was marked as a key request.
+ */
+export function useDql<T = Record<string, unknown>>(query: string | null, refreshKey = 0): DqlState<T> {
   const [state, setState] = useState<DqlState<T>>({ data: null, isLoading: !!query, error: null });
 
   useEffect(() => {
@@ -68,7 +73,7 @@ export function useDql<T = Record<string, unknown>>(query: string | null): DqlSt
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, refreshKey]);
 
   return state;
 }

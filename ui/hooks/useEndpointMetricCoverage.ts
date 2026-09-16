@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useDql } from "./useDql";
+import { useSelection } from "../context/SelectionContext";
 
 /**
  * Which of the SELECTED endpoints actually have their own metric series.
@@ -34,7 +35,8 @@ export function useEndpointMetricCoverage(names: string[]): EndpointCoverage {
 | fields \`endpoint.name\``;
   }, [names]);
 
-  const { data, isLoading, error } = useDql<Record<string, unknown>>(query);
+  const { coverageVersion } = useSelection();
+  const { data, isLoading, error } = useDql<Record<string, unknown>>(query, coverageVersion);
 
   return useMemo<EndpointCoverage>(() => {
     if (names.length === 0) {

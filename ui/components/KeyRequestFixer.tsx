@@ -6,6 +6,7 @@ import Colors from "@dynatrace/strato-design-tokens/colors";
 import { Callout } from "./Callout";
 import { ResultBanner } from "./ResultBanner";
 import { useCreateAction } from "../hooks/useCreateAction";
+import { useSelection } from "../context/SelectionContext";
 import { markKeyRequests, groupByService, enhancedEndpointsEnabled } from "../utils/keyRequests";
 import type { SelectedEntity } from "../types";
 
@@ -34,8 +35,26 @@ export const KeyRequestFixer: React.FC<{
   const { byService, orphans } = groupByService(missing);
   const markable = missing.length - orphans.length;
 
+  // Metric series show up a few minutes after the write. Re-probe every 30 s
+  // for 5 minutes so the ⚡ list and the coverage warning update themselves —
+  // once every selected endpoint is covered, the parent hides this component.
+  const { invalidateCoverage } = useSelection();
+  const [rechecks, setRechecks] = useState<number | null>(null);
+  useEffect(() => {
+    if (rechecks === null || rechecks >= 10) return;
+    const t = setTimeout(() => {
+      invalidateCoverage();
+      setRechecks((n) => (n === null ? null : n + 1));
+    }, 30_000);
+    return () => clearTimeout(t);
+  }, [rechecks, invalidateCoverage]);
+
   const { busy, result, execute } = useCreateAction({
-    run: () => markKeyRequests(missing),
+    run: async () => {
+      const out = await markKeyRequests(missing);
+      if (out.some((o) => o.added.length > 0)) setRechecks(0);
+      return out;
+    },
     successTitle: "Key requests updated",
     failureTitle: "Could not update key requests",
     describe: (outcomes) => {
@@ -47,7 +66,7 @@ export const KeyRequestFixer: React.FC<{
             }`,
       );
       lines.push(
-        "Metric series start a few minutes after the change; reopen this step then and the ⚡ templates will be available.",
+        "Metric series start a few minutes after the change. This step rechecks every 30 s for 5 minutes — the endpoints move to the ⚡ list and this warning disappears on their own.",
       );
       return lines.join("\n");
     },
@@ -77,6 +96,11 @@ export const KeyRequestFixer: React.FC<{
           already configured, never replaces it.
         </Text>
       </Flex>
+      {rechecks !== null && rechecks < 10 && (
+        <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>
+          Rechecking metric coverage… ({rechecks + 1}/10)
+        </Text>
+      )}
       {orphans.length > 0 && (
         <Text textStyle="small" style={{ color: Colors.Text.Warning.Default }}>
           {orphans.length} endpoint{orphans.length === 1 ? "" : "s"} came without an owning service

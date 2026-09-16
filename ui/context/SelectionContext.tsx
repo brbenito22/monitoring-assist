@@ -13,6 +13,13 @@ interface SelectionState {
   clear: () => void;
   /** Entity type keys present in the current selection. */
   selectedTypeKeys: string[];
+  /**
+   * Bumped after something changes which endpoints have metric series (marking
+   * a key request). Both endpoint probes re-run when it moves, so the ⚡ list
+   * and the coverage warning agree without a page reload.
+   */
+  coverageVersion: number;
+  invalidateCoverage: () => void;
 }
 
 const Ctx = createContext<SelectionState | null>(null);
@@ -45,6 +52,8 @@ export const SelectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   }, []);
 
   const clear = useCallback(() => setSelected([]), []);
+  const [coverageVersion, setCoverageVersion] = useState(0);
+  const invalidateCoverage = useCallback(() => setCoverageVersion((v) => v + 1), []);
 
   const value = useMemo<SelectionState>(
     () => ({
@@ -57,8 +66,10 @@ export const SelectionProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       deselectMany,
       clear,
       selectedTypeKeys: [...new Set(selected.map((e) => e.typeKey))],
+      coverageVersion,
+      invalidateCoverage,
     }),
-    [typeKey, selected, isSelected, toggle, selectMany, deselectMany, clear],
+    [typeKey, selected, isSelected, toggle, selectMany, deselectMany, clear, coverageVersion, invalidateCoverage],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

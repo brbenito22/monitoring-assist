@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useDql } from "./useDql";
+import { useSelection } from "../context/SelectionContext";
 
 /**
  * Endpoints that already have their own metric series in this environment.
@@ -34,7 +35,8 @@ const QUERY = `timeseries total = sum(dt.service.request.count), by: { \`endpoin
 | limit 200`;
 
 export function useMetricBackedEndpoints(enabled: boolean): MetricBackedEndpointsState {
-  const { data, isLoading, error } = useDql<Record<string, unknown>>(enabled ? QUERY : null);
+  const { coverageVersion } = useSelection();
+  const { data, isLoading, error } = useDql<Record<string, unknown>>(enabled ? QUERY : null, coverageVersion);
 
   return useMemo<MetricBackedEndpointsState>(() => {
     if (isLoading || error || !data) {
