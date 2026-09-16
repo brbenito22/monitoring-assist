@@ -101,6 +101,8 @@ Things the documentation doesn't say, or says wrongly. Each was verified against
 
 **Dashboards are documents.** `document:documents:write` *is* allowed for custom apps (unlike `automation:workflows:write`). The document format — `version: 16`, `tiles` keyed by id, `layouts` on a 24-column grid, `unitsOverrides` — was read from a stored dashboard, and the generated VALET document was created and read back through the API before shipping.
 
+**Ownership binds through `dt.owner`.** A team identifier carried as a `dt.owner:<id>` tag on an SLO, or a `dt.owner` event property on an alert, is what the Ownership app resolves — verified: a team created from the app showed up as the owner of an SLO created with it.
+
 **Endpoints may not be entities.** With Service Detection v1 and no enhanced endpoints, only manually flagged *key requests* emit per-endpoint metrics; everything else collapses into `NON_KEY_REQUESTS`. The app probes coverage **per selected endpoint** — a tenant can have a handful of key requests while the endpoints you actually picked have none.
 
 ---
