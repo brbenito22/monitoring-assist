@@ -133,7 +133,7 @@ O app não pode criar workflows (escopo reservado à Dynatrace), mas um token de
 node scripts/mwmbr-workflow.mjs --env https://<TENANT_ID>.apps.dynatrace.com --service SERVICE-XXXX --target 99.5
 ```
 
-Token em `DT_PLATFORM_TOKEN` ou em `~/.dynatrace-token`, com `automation:workflows:write`. Opções: `--service` repetível, `--owner <identificador>` para `dt.owner`, `--name`, `--activate`.
+Token em `DT_PLATFORM_TOKEN` ou em `~/.dynatrace-token`, com `automation:workflows:write`. Opções: `--service` repetível, `--owner <identificador>` para `dt.owner`, `--name`, `--activate`, `--dry-run` (imprime o payload sem criar). A ação **SLO dashboard + alerting** do app monta o mesmo payload e o comando pronto a partir dos SLOs escolhidos.
 
 **Custo:** JavaScript só é permitido em workflow **STANDARD**, que é cobrado por execução — a cada 5 minutos são 288 por dia. Ative pelo app Workflows quando estiver confortável com isso; até lá ele fica gravado mas parado.
 

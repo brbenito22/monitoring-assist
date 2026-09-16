@@ -27,7 +27,10 @@ export const Wizard: React.FC = () => {
   const { selected, clear } = useSelection();
 
   const meta = actionMeta(action);
-  const hasEntities = selected.length > 0;
+  const picksEntities = meta?.selectsEntities !== false;
+  // Actions that derive their scope elsewhere skip the picker and start at step 2.
+  const hasEntities = picksEntities ? selected.length > 0 : true;
+  const panelStep = picksEntities ? 3 : 2;
 
   // Distinct entity types in the current selection — the SLO and anomaly flows
   // only handle one, so this drives the "Scope" tile.
@@ -107,7 +110,7 @@ export const Wizard: React.FC = () => {
       </SectionCard>
 
       {/* ── Context tiles — the KPI row Cost Center opens every page with ── */}
-      {action && meta && (
+      {action && meta && picksEntities && (
         <Flex gap={12} flexWrap="wrap">
           <KpiCard
             label="Creating"
@@ -136,7 +139,7 @@ export const Wizard: React.FC = () => {
       )}
 
       {/* ── Step 2: entities ─────────────────────────────────────────── */}
-      {action && meta && (
+      {action && meta && picksEntities && (
         <SectionCard
           step={2}
           title="Which entities?"
@@ -166,15 +169,15 @@ export const Wizard: React.FC = () => {
       {/* ── Steps 3+: action specific ────────────────────────────────── */}
       {action && hasEntities && (
         <>
-          {action === "segment" && <SegmentPanel startStep={3} />}
-          {action === "slo" && <SloPanel startStep={3} />}
-          {action === "anomaly" && <AnomalyPanel startStep={3} />}
-          {action === "guardian" && <GuardianPanel startStep={3} />}
-          {action === "dashboard" && <DashboardPanel startStep={3} />}
+          {action === "segment" && <SegmentPanel startStep={panelStep} />}
+          {action === "slo" && <SloPanel startStep={panelStep} />}
+          {action === "anomaly" && <AnomalyPanel startStep={panelStep} />}
+          {action === "guardian" && <GuardianPanel startStep={panelStep} />}
+          {action === "dashboard" && <DashboardPanel startStep={panelStep} />}
         </>
       )}
 
-      {action && !hasEntities && (
+      {action && picksEntities && !hasEntities && (
         <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued, paddingLeft: 4 }}>
           Select entities above to continue.
         </Text>

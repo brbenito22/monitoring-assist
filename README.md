@@ -16,7 +16,7 @@ Built on the [Strato Design System](https://developer.dynatrace.com/design/about
 | **SLO** | Grail SLO service | `@dynatrace-sdk/client-service-level-objectives` |
 | **Anomaly detector** | `builtin:davis.anomaly-detectors` | Settings API |
 | **Guardian** | `app:dynatrace.site.reliability.guardian:guardians` | Settings API |
-| **SLO dashboard** | Dashboard document (VALET template) | `@dynatrace-sdk/client-document` |
+| **SLO dashboard + alerting** | Dashboard document (VALET + the SLOs' own SLI tiles), MWMBR workflow payload | `@dynatrace-sdk/client-document` |
 
 Plus, on the SLO side:
 
@@ -30,7 +30,7 @@ And a ready-to-paste **workflow payload** that validates a guardian.
 
 Outside the app, because the platform reserves workflow creation for Dynatrace-built apps:
 
-- **`scripts/mwmbr-workflow.mjs`** — Google's multiwindow, multi-burn-rate alerting as a scheduled workflow: 14.4× over 1h/5m, 6× over 6h/30m, 1× over 3d/6h. A detector can watch at most one hour; this can't be one. Verified end to end on a live tenant — the ticket tier fired on a service burning at 2.3×, and the event landed in Grail bound to the service.
+- **`scripts/mwmbr-workflow.mjs`** — Google's multiwindow, multi-burn-rate alerting as a scheduled workflow: 14.4× over 1h/5m, 6× over 6h/30m, 1× over 3d/6h. A detector can watch at most one hour; this can't be one. The workflow is defined once, in `ui/utils/mwmbr.ts`: the dashboard action shows it for "Edit as code", the script creates it with a platform token. Verified end to end on a live tenant — the ticket tier fired on a service burning at 2.3×, and the event landed in Grail bound to the service.
 
 ---
 
@@ -42,6 +42,8 @@ One page, numbered steps, nothing hidden behind tabs:
 1  What do you want to create?     Segment · SLO · Anomaly detector · Guardian · Dashboard
 2  Which entities?                 searchable picker across ~20 entity types
 3+ Action-specific configuration    templates, thresholds, validation, payload preview
+
+The dashboard action is SLO-first: it skips step 2 and asks **which SLOs** instead. Each SLO's entities are read from its own SLI query, the dashboard is built for that scope with the SLOs bound, and the burn-rate workflow takes each SLO's target — nothing is re-selected that the SLO already knows.
 ```
 
 The step-1 choice is **one-way by design**. Each action carries its own allowed entity types, single-vs-multi-type rule and downstream form state; switching mid-flow used to leave that state half-applied (a multi-type selection surviving into an SLO, which only handles one). "Start over" is the single explicit reset.

@@ -4,7 +4,7 @@ import { Text } from "@dynatrace/strato-components/typography";
 import { Button } from "@dynatrace/strato-components/buttons";
 import Colors from "@dynatrace/strato-design-tokens/colors";
 import { documentsClient } from "@dynatrace-sdk/client-document";
-import { openDocument } from "@dynatrace-sdk/navigation";
+import { openDocument, openApp } from "@dynatrace-sdk/navigation";
 import { SectionCard, StatusPill } from "../components/SectionCard";
 import { ChoiceCard } from "../components/ChoiceCard";
 import { CodeBlock } from "../components/CodeBlock";
@@ -12,56 +12,62 @@ import { ResultBanner } from "../components/ResultBanner";
 import { Callout } from "../components/Callout";
 import { KpiCard } from "../components/KpiCard";
 import { TextField } from "../components/Field";
-import { useSelection } from "../context/SelectionContext";
+import { OwnerPicker } from "../components/OwnerPicker";
 import { useCreateAction } from "../hooks/useCreateAction";
 import { useSlos } from "../hooks/useSlos";
 import { ENTITY_TYPE_BY_KEY } from "../constants/entityTypes";
-import { DASHBOARD_TEMPLATES, buildValetDashboard } from "../utils/dashboard";
+import { buildValetDashboard } from "../utils/dashboard";
+import { scopeFromIndicator, mergeScopes } from "../utils/sloEntities";
+import { buildMwmbrWorkflow, mwmbrCommand, MWMBR_TIERS } from "../utils/mwmbr";
 
+/**
+ * SLO-first: pick the objectives, and everything else is derived from them.
+ * The entities come out of each SLO's own SLI query; the dashboard is built
+ * for that scope with the SLOs bound; the burn-rate workflow takes each SLO's
+ * target. Nothing is re-selected that the SLO already knows.
+ */
 export const DashboardPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
-  const { selected, selectedTypeKeys } = useSelection();
-  const singleType = selectedTypeKeys.length === 1 ? selectedTypeKeys[0] : null;
-  const meta = singleType ? ENTITY_TYPE_BY_KEY.get(singleType) : undefined;
-
-  const [templateKey, setTemplateKey] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  // SLOs bound to the dashboard — each becomes two tiles running the SLO's own SLI.
-  const { slos, isLoading: slosLoading, error: slosError } = useSlos();
+  const { slos, isLoading, error } = useSlos();
   const [sloIds, setSloIds] = useState<Set<string>>(() => new Set());
-  const toggleSlo = (id: string) =>
+  const [title, setTitle] = useState("");
+  const [owner, setOwner] = useState<string | null>(null);
+  const [createdId, setCreatedId] = useState<string | null>(null);
+
+  const toggle = (id: string) =>
     setSloIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  const boundSlos = slos.filter((s) => sloIds.has(s.id) && s.indicator);
-  const [createdId, setCreatedId] = useState<string | null>(null);
 
-  const templates = DASHBOARD_TEMPLATES.map((t) => ({
-    template: t,
-    applies: !!singleType && t.appliesTo.includes(singleType),
-  }));
-  const template = templates.find((t) => t.template.key === templateKey && t.applies)?.template;
+  // What each SLO is about, read from its query.
+  const scoped = useMemo(
+    () =>
+      slos.map((s) => ({ slo: s, scope: s.indicator ? scopeFromIndicator(s.indicator) : { typeKey: null, entities: [] } })),
+    [slos],
+  );
+  const chosen = scoped.filter((x) => sloIds.has(x.slo.id));
+  const merged = useMemo(() => mergeScopes(chosen.map((x) => x.scope)), [chosen]);
+  const typeMeta = merged.typeKey ? ENTITY_TYPE_BY_KEY.get(merged.typeKey) : undefined;
 
   const effectiveTitle =
-    title || `${template?.label ?? "SLO"} — ${selected.length} ${meta?.label ?? "entities"}`;
+    title || (chosen.length === 1 ? `SLO — ${chosen[0].slo.name}` : `SLOs — ${chosen.length} objectives`);
 
   const doc = useMemo(() => {
-    if (!template || !singleType) return null;
+    if (!merged.typeKey || merged.entities.length === 0) return null;
     return buildValetDashboard({
-      entities: selected,
-      typeKey: singleType,
-      typeLabel: meta?.label ?? singleType,
+      entities: merged.entities,
+      typeKey: merged.typeKey,
+      typeLabel: typeMeta?.label ?? merged.typeKey,
       title: effectiveTitle,
-      slos: boundSlos.map((s) => ({ name: s.name, target: s.target, indicator: s.indicator! })),
+      slos: chosen
+        .filter((x) => x.slo.indicator)
+        .map((x) => ({ name: x.slo.name, target: x.slo.target, indicator: x.slo.indicator! })),
     });
-  }, [template, singleType, selected, meta, effectiveTitle, boundSlos.map((s) => s.id).join(",")]);
+  }, [merged, typeMeta, effectiveTitle, chosen]);
 
   const tileCount = doc ? Object.keys(doc.tiles).length : 0;
-  const scanning = doc
-    ? Object.values(doc.tiles).filter((t) => t.query?.startsWith("fetch ")).length
-    : 0;
 
   const { busy, result, execute: create } = useCreateAction({
     run: async () => {
@@ -69,7 +75,7 @@ export const DashboardPanel: React.FC<{ startStep: number }> = ({ startStep }) =
         body: {
           name: effectiveTitle,
           type: "dashboard",
-          description: `Generated by Monitoring Assist — ${template?.label} for ${selected.length} ${meta?.label ?? "entities"}.`,
+          description: `Generated by Monitoring Assist — VALET + ${chosen.length} SLO${chosen.length === 1 ? "" : "s"} on ${merged.entities.length} ${typeMeta?.label ?? "entities"}.`,
           content: new Blob([JSON.stringify(doc)], { type: "application/json" }),
         },
       });
@@ -79,123 +85,128 @@ export const DashboardPanel: React.FC<{ startStep: number }> = ({ startStep }) =
     },
     successTitle: "Dashboard created",
     failureTitle: "Failed to create the dashboard",
-    describe: (id) =>
-      `“${effectiveTitle}” with ${tileCount} tiles.${id ? ` Id: ${id}.` : ""} Open it from the Dashboards app or the button below.`,
+    describe: (id) => `“${effectiveTitle}” with ${tileCount} tiles.${id ? ` Id: ${id}.` : ""}`,
   });
 
-  if (!singleType) {
-    return (
-      <SectionCard step={startStep} title="Pick a template">
-        <Text textStyle="small" style={{ color: Colors.Text.Warning.Default }}>
-          A dashboard is built around one entity type. Keep only one type in your selection above.
-        </Text>
-      </SectionCard>
-    );
-  }
+  // ── Workflows: one per service-scoped SLO, each with its own target ──────
+  const workflows = chosen
+    .filter((x) => x.scope.typeKey === "service" && x.slo.target !== undefined)
+    .map((x) => {
+      const opts = {
+        title: `MWMBR — ${x.slo.name}`,
+        services: x.scope.entities.map((e) => e.id),
+        target: x.slo.target!,
+        owner: owner ?? undefined,
+      };
+      return { slo: x.slo, payload: buildMwmbrWorkflow(opts), command: mwmbrCommand(window.location.origin, opts) };
+    });
+  const notServiceScoped = chosen.filter((x) => x.scope.typeKey !== "service").length;
 
   return (
     <>
+      {/* ── Which SLOs ─────────────────────────────────────────────────── */}
       <SectionCard
         step={startStep}
-        title="Pick a template"
-        subtitle="Each template is a layout with the queries already written and validated."
-        aside={template ? <StatusPill tone="ok">{template.label}</StatusPill> : <StatusPill tone="warn">Choose one</StatusPill>}
+        title="Which SLOs?"
+        subtitle="Each SLO already knows its entities — they're read from its SLI query, so there's nothing to re-select."
+        aside={
+          chosen.length > 0 ? (
+            <StatusPill tone="ok">{chosen.length} selected</StatusPill>
+          ) : (
+            <StatusPill tone="warn">Pick at least one</StatusPill>
+          )
+        }
       >
-        <Grid gridTemplateColumns="repeat(auto-fit, minmax(300px, 1fr))" gap={8}>
-          {templates.map(({ template: t, applies }) => (
-            <ChoiceCard
-              key={t.key}
-              selected={t.key === templateKey}
-              disabled={!applies}
-              title_={!applies ? `${t.label} doesn't apply to ${meta?.label ?? "this type"}` : undefined}
-              title={t.label}
-              description={`${t.description} — ${t.source}`}
-              onClick={() => setTemplateKey(t.key)}
-            />
-          ))}
-        </Grid>
+        {error ? (
+          <Text textStyle="small" style={{ color: Colors.Text.Critical.Default }}>Couldn't list SLOs: {error}</Text>
+        ) : isLoading ? (
+          <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>Loading SLOs…</Text>
+        ) : slos.length === 0 ? (
+          <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>
+            No SLOs in this environment yet — create some with the SLO action first.
+          </Text>
+        ) : (
+          <Grid gridTemplateColumns="repeat(auto-fit, minmax(280px, 1fr))" gap={8}>
+            {scoped.map(({ slo, scope }) => (
+              <ChoiceCard
+                key={slo.id}
+                multi
+                selected={sloIds.has(slo.id)}
+                disabled={!scope.typeKey}
+                title_={!scope.typeKey ? "No entities could be read from this SLO's query" : undefined}
+                title={slo.name}
+                description={[
+                  slo.target !== undefined ? `target ${slo.target}%` : "no target",
+                  scope.typeKey
+                    ? `${scope.entities.length} ${(ENTITY_TYPE_BY_KEY.get(scope.typeKey)?.label ?? scope.typeKey).toLowerCase()}`
+                    : "scope unknown",
+                ].join(" · ")}
+                onClick={() => toggle(slo.id)}
+              />
+            ))}
+          </Grid>
+        )}
+
+        {merged.conflict.length > 1 && (
+          <div style={{ marginTop: 12 }}>
+            <Callout tone="warning">
+              <strong>These SLOs target different entity types</strong> (
+              {merged.conflict.map((t) => ENTITY_TYPE_BY_KEY.get(t)?.label ?? t).join(", ")}). A dashboard is
+              built around one type — pick SLOs that share one, or create one dashboard per type.
+            </Callout>
+          </div>
+        )}
       </SectionCard>
 
-      {template && doc && (
+      {/* ── Derived scope ──────────────────────────────────────────────── */}
+      {chosen.length > 0 && merged.typeKey && (
         <SectionCard
           step={startStep + 1}
-          title="Name it"
-          aside={<StatusPill tone="neutral">{tileCount} tiles</StatusPill>}
+          title="What they cover"
+          subtitle="Read from the SLI queries. This is the scope of the dashboard and the alerting."
+          aside={<StatusPill tone="ok">{merged.entities.length} {typeMeta?.label.toLowerCase()}</StatusPill>}
         >
           <Flex flexDirection="column" gap={16}>
             <Flex gap={12} flexWrap="wrap">
+              <KpiCard label="SLOs" value={chosen.length} subLabel="bound to the dashboard" colorVariant="positive" />
+              <KpiCard label="Entities" value={merged.entities.length} subLabel={typeMeta?.label ?? merged.typeKey} />
+              <KpiCard label="Tiles" value={tileCount} subLabel={`VALET + ${chosen.length * 2} SLO tiles`} />
               <KpiCard
-                label="Tiles"
-                value={tileCount}
-                subLabel={boundSlos.length ? `VALET + ${boundSlos.length} SLO${boundSlos.length === 1 ? "" : "s"}` : "header, 5 headline values, 5 charts"}
+                label="Workflows"
+                value={workflows.length}
+                subLabel={workflows.length ? "one per service SLO" : "service SLOs only"}
+                colorVariant={workflows.length ? "warning" : "default"}
               />
-              <KpiCard
-                label="Metric tiles"
-                value={tileCount - scanning - 1}
-                subLabel="0 bytes scanned"
-                colorVariant="positive"
-              />
-              <KpiCard
-                label="Scanning tiles"
-                value={scanning}
-                subLabel="Davis problems — the “Tickets” proxy"
-                colorVariant="warning"
-              />
+            </Flex>
+            <Flex gap={6} flexWrap="wrap">
+              {merged.entities.slice(0, 24).map((e) => (
+                <StatusPill key={e.id} tone="neutral">{e.name}</StatusPill>
+              ))}
+              {merged.entities.length > 24 && <StatusPill tone="neutral">+{merged.entities.length - 24}</StatusPill>}
             </Flex>
             <Grid gridTemplateColumns="repeat(auto-fit, minmax(240px, 1fr))" gap={16}>
               <TextField label="Dashboard name" value={title} onChange={setTitle} placeholder={effectiveTitle} />
             </Grid>
-
-            <Flex flexDirection="column" gap={8}>
-              <Text textStyle="base-emphasized">Bind SLOs to this dashboard</Text>
-              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>
-                Each one becomes two tiles — current value and timeline — running the SLI query stored
-                in the SLO, so the dashboard and the SLO app can never disagree.
-              </Text>
-              {slosError ? (
-                <Text textStyle="small" style={{ color: Colors.Text.Critical.Default }}>Couldn't list SLOs: {slosError}</Text>
-              ) : slosLoading ? (
-                <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>Loading SLOs…</Text>
-              ) : slos.length === 0 ? (
-                <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>
-                  No SLOs in this environment yet — create some with the SLO action first.
-                </Text>
-              ) : (
-                <Grid gridTemplateColumns="repeat(auto-fit, minmax(260px, 1fr))" gap={8}>
-                  {slos.map((s) => (
-                    <ChoiceCard
-                      key={s.id}
-                      multi
-                      selected={sloIds.has(s.id)}
-                      disabled={!s.indicator}
-                      title_={!s.indicator ? "This SLO has no custom SLI query to plot" : undefined}
-                      title={s.name}
-                      description={s.target !== undefined ? `target ${s.target}%` : "no target"}
-                      onClick={() => toggleSlo(s.id)}
-                    />
-                  ))}
-                </Grid>
-              )}
-            </Flex>
-            <Callout tone="info">
-              <strong>Tickets are Davis problems.</strong> Dynatrace has no ticket system, so the T
-              in VALET shows the problems that affected these entities — the nearest honest proxy.
-              Those two tiles read <code>dt.davis.problems</code> and are the only ones that scan
-              data; everything else is metric-based.
-            </Callout>
+            <OwnerPicker value={owner} onChange={setOwner} />
           </Flex>
         </SectionCard>
       )}
 
-      {template && doc && (
+      {/* ── Dashboard ──────────────────────────────────────────────────── */}
+      {doc && (
         <SectionCard
           step={startStep + 2}
           title="Create the dashboard"
-          subtitle="Written through the Document API as a dashboard you own; edit it freely afterwards."
+          subtitle="VALET for the entities above, plus two tiles per SLO running the SLO's own SLI query."
           aside={createdId ? <StatusPill tone="ok">Created</StatusPill> : <StatusPill tone="ok">Ready</StatusPill>}
         >
           <Flex flexDirection="column" gap={12}>
             <ResultBanner result={result} />
+            <Callout tone="info">
+              <strong>Tickets are Davis problems.</strong> Dynatrace has no ticket system, so the T in
+              VALET shows the problems that affected these entities. Those two tiles are the only ones
+              that scan data; everything else, including the SLO tiles, is metric-based.
+            </Callout>
             <CodeBlock label="Dashboard document" collapsible code={JSON.stringify(doc, null, 2)} />
             <Flex gap={12} flexWrap="wrap">
               <Button variant="accent" color="primary" onClick={create} disabled={busy}>
@@ -207,6 +218,64 @@ export const DashboardPanel: React.FC<{ startStep: number }> = ({ startStep }) =
                 </Button>
               )}
             </Flex>
+          </Flex>
+        </SectionCard>
+      )}
+
+      {/* ── Alerting workflow ──────────────────────────────────────────── */}
+      {chosen.length > 0 && merged.typeKey && (
+        <SectionCard
+          step={startStep + 3}
+          title="Burn-rate alerting for these SLOs"
+          subtitle="Google's multiwindow, multi-burn-rate alerting — one scheduled workflow per SLO, at its own target."
+          aside={
+            workflows.length ? (
+              <StatusPill tone="ok">{workflows.length} ready</StatusPill>
+            ) : (
+              <StatusPill tone="warn">Service SLOs only</StatusPill>
+            )
+          }
+        >
+          <Flex flexDirection="column" gap={16}>
+            <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued, lineHeight: 1.6 }}>
+              Every 5 minutes: error rate over {MWMBR_TIERS.flatMap((t) => [t.long, t.short]).join(", ")},
+              burn rate = error rate ÷ what the target allows, and a Davis event per tier where both windows
+              exceed it — {MWMBR_TIERS.map((t) => `${t.burnRate}× (${t.long}/${t.short}, ${t.severity})`).join(", ")}.
+            </Text>
+
+            {notServiceScoped > 0 && (
+              <Callout tone="warning">
+                {notServiceScoped} of the selected SLOs {notServiceScoped === 1 ? "is" : "are"} not
+                service-scoped. The workflow reads <code>dt.service.request.*</code> per service; endpoint and
+                frontend variants aren't built yet.
+              </Callout>
+            )}
+
+            {workflows.length > 0 && (
+              <Callout tone="warning">
+                <strong>The app can't create workflows</strong> — the platform reserves{" "}
+                <code>automation:workflows:write</code> for Dynatrace-built apps. Two ways to create what's
+                below: paste the payload in Workflows (<strong>+ Workflow → ⋯ → Edit as code</strong>), or run
+                the command with a platform token. Either way it's a <strong>STANDARD</strong> workflow, billed
+                per run (288/day at 5 min), and it's created <strong>inactive</strong>.
+              </Callout>
+            )}
+
+            {workflows.map((w) => (
+              <Flex key={w.slo.id} flexDirection="column" gap={8}>
+                <Text textStyle="base-emphasized">{w.payload.title}</Text>
+                <CodeBlock label="Workflow payload (Edit as code)" collapsible code={JSON.stringify(w.payload, null, 2)} />
+                <CodeBlock label="Or from the terminal" collapsible code={w.command} />
+              </Flex>
+            ))}
+
+            {workflows.length > 0 && (
+              <Flex>
+                <Button variant="accent" color="primary" onClick={() => openApp("dynatrace.automations")}>
+                  Open Workflows
+                </Button>
+              </Flex>
+            )}
           </Flex>
         </SectionCard>
       )}

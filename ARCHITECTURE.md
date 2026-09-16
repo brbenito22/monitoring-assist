@@ -55,7 +55,9 @@ The payoff: every query the app can emit is produced by a pure function you can 
 | `workflow.ts` | Workflow payload that validates a guardian |
 | `keyRequests.ts` | Read-merge-write of `keyRequestNames` per service, with the update token |
 | `ownership.ts` | Team payload, identifier slug, the `dt.owner` tag |
-| `dashboard.ts` | VALET dashboard document (tiles + layouts) from validated queries |
+| `dashboard.ts` | VALET dashboard document (tiles + layouts) from validated queries, plus two tiles per bound SLO |
+| `sloEntities.ts` | Reads an SLO's entities back out of its SLI query (`filter in(...)`) |
+| `mwmbr.ts` | The MWMBR workflow — one builder for the panel's payload and the script |
 
 **`dqlBuilder.ts` is the centre of gravity.** An `SliTemplate` is a small record:
 

@@ -1,41 +1,31 @@
 #!/usr/bin/env node
 /**
- * Multiwindow, multi-burn-rate (MWMBR) alerting as a scheduled workflow.
- *
- * Why a script and not the app: Davis anomaly detectors run at interval 1m
- * with a 60-sample cap, so a detector can watch at most one hour. Google's
- * MWMBR pairs 1h/5m, 6h/30m and 3d/6h windows. Those need a workflow, and
- * custom apps cannot declare automation:workflows:write ("Only apps that are
- * provided by Dynatrace can use…"). A platform token can, so this runs from
- * the terminal.
- *
- * What it creates: one workflow, scheduled every 5 minutes (INACTIVE until
- * you switch it on), with a single JavaScript task that
- *   1. runs one DQL per window on the selected services,
- *   2. computes burn rate = error rate ÷ (1 − target),
- *   3. for each tier, fires a CUSTOM_ALERT event when BOTH the long and the
- *      short window exceed the tier's burn rate — the short window is what
- *      makes the alert reset quickly once the incident is over.
+ * Creates the multiwindow, multi-burn-rate (MWMBR) workflow with a platform
+ * token. The workflow itself is defined once, in ui/utils/mwmbr.ts, and the
+ * SLO dashboard action shows the same payload for "Edit as code" — the app
+ * cannot create workflows (automation:workflows:write is reserved for
+ * Dynatrace-built apps), a token can.
  *
  * Usage:
  *   node scripts/mwmbr-workflow.mjs \
  *     --env https://abc12345.apps.dynatrace.com \
  *     --service SERVICE-AAAA --service SERVICE-BBBB \
- *     --target 99.5 [--name "MWMBR — checkout"] [--owner team_id] [--activate]
+ *     --target 99.5 [--name "MWMBR — checkout"] [--owner team_id] [--activate] [--dry-run]
  *
  * Token: DT_PLATFORM_TOKEN env var, or ~/.dynatrace-token (one line).
- * Needs automation:workflows:write. Nothing is printed that contains the token.
+ * Needs automation:workflows:write. Nothing printed contains the token.
  *
- * Cost: this is a STANDARD workflow (JavaScript is not allowed in SIMPLE
- * ones), so each run is billed. Every 5 minutes = 288 runs/day. Widen the
- * interval if that matters more than a few minutes of detection latency.
+ * Cost: STANDARD workflow (JavaScript is not allowed in SIMPLE ones), billed
+ * per execution — every 5 minutes is 288 runs/day. Created INACTIVE unless
+ * --activate is given.
  *
- * Reference: Google SRE Workbook, "Alerting on SLOs", §6 "Multiwindow,
- * Multi-Burn-Rate Alerts".
+ * Reference: Google SRE Workbook, "Alerting on SLOs", §6.
  */
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { build } from "esbuild";
+import { readFileSync, mkdtempSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 
 // ── args ──────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -52,6 +42,7 @@ const target = Number(opt("target", "99.5"));
 const owner = opt("owner", "");
 const name = opt("name", `MWMBR — ${services.length} service${services.length === 1 ? "" : "s"} @ ${target}%`);
 const activate = flag("activate");
+const dryRun = flag("dry-run");
 
 if (!env || services.length === 0 || !(target > 0 && target < 100)) {
   console.error("usage: --env <url> --service <SERVICE-ID> [--service …] --target <0-100> [--name …] [--owner …] [--activate]");
@@ -68,124 +59,29 @@ if (!token) {
   }
 }
 
-// ── the tiers (Google's table, 30-day window) ─────────────────────────────
-// burn rate × long window ÷ short window. Budget consumed over the long
-// window: 2% / 5% / 10%.
-const TIERS = [
-  { key: "page-fast", severity: "page", burnRate: 14.4, long: "1h", short: "5m" },
-  { key: "page-slow", severity: "page", burnRate: 6, long: "6h", short: "30m" },
-  { key: "ticket", severity: "ticket", burnRate: 1, long: "3d", short: "6h" },
-];
-
-// ── the JavaScript the workflow runs ──────────────────────────────────────
-// Kept as a plain string so this file stays runnable with node alone.
-const script = `
-import { queryExecutionClient } from "@dynatrace-sdk/client-query";
-import { eventsClient } from "@dynatrace-sdk/client-classic-environment-v2";
-
-const SERVICES = ${JSON.stringify(services)};
-const TARGET = ${target};
-const OWNER = ${JSON.stringify(owner)};
-const TIERS = ${JSON.stringify(TIERS)};
-const ALLOWED = (100 - TARGET) / 100;
-
-const list = SERVICES.map((s) => 'toSmartscapeId("' + s + '")').join(", ");
-
-async function errorRate(window) {
-  const query = \`timeseries { total = sum(dt.service.request.count), failures = sum(dt.service.request.failure_count) },
-  by: { dt.smartscape.service }, from: now()-\${window}
-| filter in(dt.smartscape.service, { \${list} })
-| summarize t = sum(arraySum(total)), f = sum(arraySum(failures))
-| fields t, f\`;
-  let res = await queryExecutionClient.queryExecute({ body: { query, requestTimeoutMilliseconds: 30000 } });
-  while (res.state === "RUNNING" || res.state === "NOT_STARTED") {
-    await new Promise((r) => setTimeout(r, 1000));
-    res = await queryExecutionClient.queryPoll({ requestToken: res.requestToken });
-  }
-  // A failed query must fail the run, not read as "no errors".
-  if (res.state !== "SUCCEEDED") throw new Error("DQL " + res.state + " for window " + window);
-  const row = res.result?.records?.[0] ?? {};
-  const t = Number(row.t ?? 0), f = Number(row.f ?? 0);
-  // No traffic is not the same as no errors: report it, and never divide by zero.
-  return { t, f, rate: t > 0 ? f / t : 0 };
+// ── the builder, from the app's own TypeScript ────────────────────────────
+const root = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+const out = mkdtempSync(join(tmpdir(), "mwmbr-"));
+let buildMwmbrWorkflow;
+try {
+  await build({
+    entryPoints: [join(root, "ui", "utils", "mwmbr.ts")],
+    outfile: join(out, "mwmbr.mjs"),
+    bundle: true,
+    platform: "node",
+    format: "esm",
+    logLevel: "error",
+  });
+  ({ buildMwmbrWorkflow } = await import(pathToFileURL(join(out, "mwmbr.mjs")).href));
+} finally {
+  rmSync(out, { recursive: true, force: true });
 }
 
-export default async function () {
-  const windows = [...new Set(TIERS.flatMap((t) => [t.long, t.short]))];
-  const rates = {};
-  for (const w of windows) rates[w] = await errorRate(w);
-
-  const fired = [];
-  const ingest = [];
-  for (const tier of TIERS) {
-    const L = rates[tier.long], S = rates[tier.short];
-    // Both windows need traffic — a silent service is not a burning one.
-    if (L.t === 0 || S.t === 0) continue;
-    const burnLong = L.rate / ALLOWED;
-    const burnShort = S.rate / ALLOWED;
-    const hit = burnLong >= tier.burnRate && burnShort >= tier.burnRate;
-    if (!hit) continue;
-    fired.push(tier.key);
-    // entitySelector is what makes the classic Events API keep the event:
-    // without an entity to attach to, CUSTOM_ALERT is dropped with no error
-    // surfaced to the caller (observed). The ingest report is returned below
-    // so a rejection shows up in the execution result instead of vanishing.
-    const report = await eventsClient.createEvent({
-      body: {
-        eventType: "CUSTOM_ALERT",
-        title: \`Burn rate \${tier.burnRate}× (\${tier.long}/\${tier.short}) — \${TARGET}% objective\`,
-        timeout: 10,
-        entitySelector: 'type(SERVICE),entityId(' + SERVICES.map((s) => '"' + s + '"').join(",") + ')',
-        properties: {
-          "dt.event.description": \`Error budget burning at \${burnLong.toFixed(1)}× over \${tier.long} and \${burnShort.toFixed(1)}× over \${tier.short}. Tier: \${tier.severity}.\`,
-          "burn.tier": tier.key,
-          "burn.severity": tier.severity,
-          "burn.long_window": tier.long,
-          "burn.short_window": tier.short,
-          "burn.rate_long": String(burnLong.toFixed(3)),
-          "burn.rate_short": String(burnShort.toFixed(3)),
-          "slo.target": String(TARGET),
-          "affected.services": SERVICES.join(","),
-          ...(OWNER ? { "dt.owner": OWNER } : {}),
-        },
-      },
-    });
-    ingest.push({ tier: tier.key, report });
-  }
-  return { rates, allowed: ALLOWED, fired, ingest };
+const workflow = buildMwmbrWorkflow({ title: name, services, target, owner, active: activate });
+if (dryRun) {
+  console.log(JSON.stringify(workflow, null, 2));
+  process.exit(0);
 }
-`;
-
-const workflow = {
-  title: name,
-  description: `Multiwindow, multi-burn-rate alerting (Google SRE Workbook) for ${services.length} service(s) at a ${target}% objective. Tiers: 14.4× 1h/5m, 6× 6h/30m, 1× 3d/6h. Generated by Monitoring Assist scripts/mwmbr-workflow.mjs.`,
-  // STANDARD, not SIMPLE: the JavaScript action is "not permitted for use
-  // within SIMPLE workflow" (API, verified). SIMPLE is the free tier and only
-  // allows a fixed set of actions; STANDARD is billed per execution — every
-  // 5 minutes is 288 runs a day, which is the cost of this alert.
-  type: "STANDARD",
-  isPrivate: false,
-  trigger: {
-    schedule: {
-      isActive: activate,
-      trigger: { type: "interval", intervalMinutes: 5 },
-      timezone: "UTC",
-      inputs: {},
-      filterParameters: {},
-      rule: null,
-    },
-  },
-  tasks: {
-    evaluate_burn_rates: {
-      name: "evaluate_burn_rates",
-      action: "dynatrace.automations:run-javascript",
-      description: "Computes burn rate over each window pair and raises a CUSTOM_ALERT per tier that exceeds it.",
-      input: { script },
-      position: { x: 0, y: 1 },
-      predecessors: [],
-    },
-  },
-};
 
 // ── create ────────────────────────────────────────────────────────────────
 const res = await fetch(`${env}/platform/automation/v1/workflows`, {
@@ -196,7 +92,7 @@ const res = await fetch(`${env}/platform/automation/v1/workflows`, {
 const body = await res.json().catch(() => ({}));
 if (!res.ok) {
   console.error(`POST /workflows -> ${res.status}`);
-  console.error(JSON.stringify(body, null, 2).replace(token, "***"));
+  console.error(JSON.stringify(body, null, 2).split(token).join("***"));
   process.exit(1);
 }
 console.log(`✅ workflow created: ${body.id}`);

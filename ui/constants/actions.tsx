@@ -12,6 +12,12 @@ export interface ActionMeta {
   /** Only these entity types can drive the action; undefined means all. */
   allowedTypeKeys?: string[];
   singleTypeOnly: boolean;
+  /**
+   * False for actions whose scope comes from somewhere else — the SLO
+   * dashboard reads its entities out of the SLOs you pick, so the entity
+   * picker step is skipped.
+   */
+  selectsEntities?: boolean;
 }
 
 const ICON_SIZE = 18;
@@ -70,12 +76,12 @@ export const ACTIONS: ActionMeta[] = [
   },
   {
     key: "dashboard",
-    title: "SLO dashboard",
+    title: "SLO dashboard + alerting",
     description:
-      "A dashboard from a template — VALET: volume, availability, latency, errors, tickets — with every query already validated.",
+      "Pick SLOs. Their entities become a VALET dashboard, and their targets become the multiwindow burn-rate workflow.",
     icon: <GridIcon size={ICON_SIZE} />,
-    allowedTypeKeys: ["service", "service_method", "endpoint", "application", "application_method"],
     singleTypeOnly: true,
+    selectsEntities: false,
   },
 ];
 
