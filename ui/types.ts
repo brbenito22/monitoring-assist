@@ -4,6 +4,12 @@ export interface SelectedEntity {
   name: string;
   /** Entity type key from ENTITY_TYPES. */
   typeKey: string;
+  /**
+   * Owning service, for virtual entities (endpoints) that live as a span
+   * attribute. Key requests are configured per service, so this is what makes
+   * "mark as key request" possible from a selection.
+   */
+  serviceId?: string;
 }
 
 export interface TimeRangeOption {

@@ -11,6 +11,8 @@ import { ResultBanner } from "../components/ResultBanner";
 import { KpiCard } from "../components/KpiCard";
 import { Callout } from "../components/Callout";
 import { TextField, NumberField, SelectField } from "../components/Field";
+import { OwnerPicker } from "../components/OwnerPicker";
+import { ownerTag } from "../utils/ownership";
 import { useSelection } from "../context/SelectionContext";
 import { runDql } from "../hooks/useDql";
 import { useCreateAction } from "../hooks/useCreateAction";
@@ -57,6 +59,7 @@ export const SloSetPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
   const [timeframe, setTimeframe] = useState("now-30d");
   const [safetyMargin, setSafetyMargin] = useState(0);
   const [tags, setTags] = useState("");
+  const [owner, setOwner] = useState<string | null>(null);
   const [validations, setValidations] = useState<Record<string, Validation>>({});
   const [validating, setValidating] = useState(false);
 
@@ -94,6 +97,7 @@ export const SloSetPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
 
   const sloWindowHours = windowHours(timeframe);
   const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+  if (owner) tagList.push(ownerTag(owner));
 
   /** The SLO API bodies, one per row, in creation order. */
   const payloads = useMemo(() => {
@@ -249,6 +253,8 @@ export const SloSetPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
               />
               <TextField label="Tags" value={tags} onChange={setTags} placeholder="team:platform, method:red" hint="Comma separated." />
             </Grid>
+
+            <OwnerPicker value={owner} onChange={setOwner} />
 
             {payloads.map(({ item, enforced }) => {
               const v = validations[item.template.key] ?? { state: "idle" };

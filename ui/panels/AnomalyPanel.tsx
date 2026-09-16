@@ -24,6 +24,7 @@ import { useEndpointMetricCoverage } from "../hooks/useEndpointMetricCoverage";
 import { ENTITY_TYPE_BY_KEY } from "../constants/entityTypes";
 import { useCreateAction, settingsObjectId } from "../hooks/useCreateAction";
 import { Callout } from "../components/Callout";
+import { KeyRequestFixer } from "../components/KeyRequestFixer";
 
 const SCHEMA_ID = "builtin:davis.anomaly-detectors";
 
@@ -240,7 +241,8 @@ export const AnomalyPanel: React.FC<{ startStep: number }> = ({ startStep }) => 
           )}
 
           {metricsUnusable && (
-            <Callout tone="warning">
+            <>
+              <Callout tone="warning">
                 <strong>
                   {coverage.missing.length} of {endpointNames.length} selected endpoint
                   {endpointNames.length === 1 ? " has" : "s have"} no metric series.
@@ -267,6 +269,10 @@ export const AnomalyPanel: React.FC<{ startStep: number }> = ({ startStep }) => 
                 Until either is in place, the detector below reads <strong>spans</strong>, which
                 covers every endpoint but re-scans on each evaluation.
               </Callout>
+              <KeyRequestFixer
+                missing={selected.filter((e) => coverage.missing.includes(e.id))}
+              />
+            </>
           )}
 
           {isEndpoint && !coverage.isLoading && coverage.allCovered && endpointNames.length > 0 && (

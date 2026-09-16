@@ -92,11 +92,13 @@ export const EntitySelect: React.FC<EntitySelectProps> = ({
           // the identity, scoped by the service it belongs to.
           id: v.value,
           name: v.value,
+          serviceId: v.serviceId || undefined,
           extras: [v.serviceName, `${v.calls.toLocaleString()} calls`],
         }))
       : (data ?? []).map((r) => ({
           id: str(r.id),
           name: str(r.name) || str(r.id),
+          serviceId: undefined as string | undefined,
           extras: (meta?.extraFields ?? []).map((f) => str(r[f])),
         }));
 
@@ -327,7 +329,7 @@ export const EntitySelect: React.FC<EntitySelectProps> = ({
               allShownSelected
                 ? deselectMany(rows.map((r) => r.id))
                 : selectMany(
-                    rows.map<SelectedEntity>((r) => ({ id: r.id, name: r.name, typeKey })),
+                    rows.map<SelectedEntity>((r) => ({ id: r.id, name: r.name, typeKey, serviceId: r.serviceId })),
                   )
             }
             disabled={rows.length === 0}
@@ -366,7 +368,7 @@ export const EntitySelect: React.FC<EntitySelectProps> = ({
                 selected={isSelected(r.id)}
                 title={r.name}
                 description={r.extras.filter(Boolean).join(" · ") || r.id}
-                onClick={() => toggle({ id: r.id, name: r.name, typeKey })}
+                onClick={() => toggle({ id: r.id, name: r.name, typeKey, serviceId: r.serviceId })}
               />
             ))}
           </Grid>

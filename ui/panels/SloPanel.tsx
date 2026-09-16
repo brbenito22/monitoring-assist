@@ -15,6 +15,9 @@ import {
 } from "../utils/burnRate";
 import { buildStaticDetector } from "../utils/detector";
 import { SloSetPanel } from "./SloSetPanel";
+import { KeyRequestFixer } from "../components/KeyRequestFixer";
+import { OwnerPicker } from "../components/OwnerPicker";
+import { ownerTag } from "../utils/ownership";
 import { SectionCard, StatusPill } from "../components/SectionCard";
 import { ChoiceCard } from "../components/ChoiceCard";
 import { CodeBlock } from "../components/CodeBlock";
@@ -93,6 +96,8 @@ const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
   const [revenuePerHour, setRevenuePerHour] = useState(0);
   const [timeframe, setTimeframe] = useState("now-7d");
   const [tags, setTags] = useState("");
+  // Ownership team identifier → dt.owner on the SLO and on every alert.
+  const [owner, setOwner] = useState<string | null>(null);
   const [validateQuery, setValidateQuery] = useState<string | null>(null);
   const [burnPreset, setBurnPreset] = useState<string | null>(null);
 
@@ -121,6 +126,7 @@ const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
   const payload = useMemo(() => {
     if (!sliDql) return null;
     const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    if (owner) tagList.push(ownerTag(owner));
     return {
       name: effectiveName,
       ...(description ? { description } : {}),
@@ -134,7 +140,7 @@ const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
       ],
       ...(tagList.length ? { tags: tagList } : {}),
     };
-  }, [sliDql, effectiveName, description, timeframe, enforced, warning, tags]);
+  }, [sliDql, effectiveName, description, timeframe, enforced, warning, tags, owner]);
 
   const ready = !!payload && warning > enforced;
 
@@ -183,6 +189,7 @@ const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
           condition: "BELOW",
           violatingSamples: ALERT_DEFAULTS.violating,
           slidingWindow: ALERT_DEFAULTS.window,
+          eventProperties: owner ? { "dt.owner": owner } : undefined,
         }),
       });
     }
@@ -200,6 +207,7 @@ const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
           condition: "ABOVE",
           violatingSamples: ALERT_DEFAULTS.violating,
           slidingWindow: ALERT_DEFAULTS.window,
+          eventProperties: owner ? { "dt.owner": owner } : undefined,
         }),
       });
     }
@@ -216,11 +224,12 @@ const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
           condition: "ABOVE",
           violatingSamples: preset.violatingSamples,
           slidingWindow: preset.windowSamples,
+          eventProperties: owner ? { "dt.owner": owner } : undefined,
         }),
       });
     }
     return items;
-  }, [alertKinds, preset, signalSource, singleType, selected, enforced, effectiveName, burnQuery, sloWindowHours]);
+  }, [alertKinds, preset, signalSource, singleType, selected, enforced, effectiveName, burnQuery, sloWindowHours, owner]);
 
   const {
     busy: alertsBusy,
@@ -311,7 +320,8 @@ const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
           </Text>
 
           {isEndpoint && !coverage.isLoading && coverage.missing.length > 0 && (
-            <Callout tone="warning">
+            <>
+              <Callout tone="warning">
                 <strong>
                   Metric-based templates are hidden: {coverage.missing.length} of{" "}
                   {endpointNames.length} selected endpoint
@@ -333,6 +343,10 @@ const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
                 <br />
                 Until then, the 🔍 span-based templates below cover every endpoint correctly.
               </Callout>
+              <KeyRequestFixer
+                missing={selected.filter((e) => coverage.missing.includes(e.id))}
+              />
+            </>
           )}
 
           {isEndpoint && !coverage.isLoading && coverage.allCovered && endpointNames.length > 0 && (
@@ -478,6 +492,8 @@ const SingleSloPanel: React.FC<{ startStep: number }> = ({ startStep }) => {
               hint="Turns the error budget into money. Your estimate, any currency."
             />
           </Grid>
+
+          <OwnerPicker value={owner} onChange={setOwner} />
 
           {warning <= enforced && (
             <Text textStyle="small" style={{ color: Colors.Text.Critical.Default }}>
