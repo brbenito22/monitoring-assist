@@ -183,4 +183,4 @@ The app adapts, but these change what you'll see:
 
 ## Licence
 
-Provided as-is, with no warranty. Review what it generates before applying it to production.
+[MIT](LICENSE). Review what it generates before applying it to production.

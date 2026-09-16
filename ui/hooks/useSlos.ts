@@ -5,6 +5,8 @@ export interface SloSummary {
   id: string;
   name: string;
   target?: number;
+  /** The SLI query the SLO service evaluates — what a dashboard tile should plot. */
+  indicator?: string;
 }
 
 /** Lists the tenant's Grail SLOs so guardian objectives can reference them. */
@@ -20,11 +22,17 @@ export function useSlos() {
         const res = await serviceLevelObjectivesClient.getSlos({});
         const raw = (res as { slos?: unknown[] })?.slos ?? [];
         const list: SloSummary[] = raw.map((s) => {
-          const o = s as { id?: string; name?: string; criteria?: { target?: number }[] };
+          const o = s as {
+            id?: string;
+            name?: string;
+            criteria?: { target?: number }[];
+            customSli?: { indicator?: string };
+          };
           return {
             id: String(o.id ?? ""),
             name: String(o.name ?? ""),
             target: o.criteria?.[0]?.target,
+            indicator: o.customSli?.indicator,
           };
         });
         if (!cancelled) setSlos(list.filter((s) => s.name));

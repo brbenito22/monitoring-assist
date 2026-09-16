@@ -155,13 +155,24 @@ export interface DashboardDoc {
   settings: { defaultTimeframe: { value: { from: string; to: string }; enabled: boolean } };
 }
 
+/** An SLO to put on the dashboard — plotted with the SLI query the SLO service itself evaluates. */
+export interface DashboardSlo {
+  name: string;
+  target?: number;
+  indicator: string;
+}
+
 export function buildValetDashboard(opts: {
   entities: SelectedEntity[];
   typeKey: string;
   typeLabel: string;
   title: string;
-  /** SLO names to list in the header, if any were created alongside. */
-  sloNames?: string[];
+  /**
+   * SLOs to bind to this dashboard. Each gets its current value and its
+   * timeline, from the very query stored in the SLO — so the dashboard and
+   * the SLO app can never disagree about what "good" means.
+   */
+  slos?: DashboardSlo[];
 }): DashboardDoc {
   const s = signal(opts.entities, opts.typeKey);
   const tiles: Record<string, Tile> = {};
@@ -178,7 +189,12 @@ ${s.filter}`;
 
   // ── Header ────────────────────────────────────────────────────────────
   const names = opts.entities.map((e) => `\`${e.name}\``).join(", ");
-  const slos = opts.sloNames?.length ? `\n\n**SLOs:** ${opts.sloNames.join(" · ")}` : "";
+  const sloList = opts.slos ?? [];
+  const slos = sloList.length
+    ? `\n\n**SLOs:** ${sloList
+        .map((x) => (x.target !== undefined ? `${x.name} (${x.target}%)` : x.name))
+        .join(" · ")}`
+    : "";
   add(
     {
       type: "markdown",
@@ -280,6 +296,41 @@ ${s.name}
     },
     { x: 0, y: 19, w: 24, h: 7 },
   );
+
+  // ── The SLOs themselves ────────────────────────────────────────────────
+  // Two tiles per SLO: where it stands now, and its timeline per entity. The
+  // query is the SLO's own SLI — collapsed to one value the way a guardian
+  // objective is (arrayAvg per entity, then the worst entity) for the number,
+  // and left as-is for the chart.
+  if (sloList.length > 0) {
+    add(
+      {
+        type: "markdown",
+        content:
+          "### SLOs\n\nEach tile below runs the exact SLI query stored in the SLO. The target is in the tile title; the single value is the **worst entity** over the dashboard timeframe.",
+      },
+      { x: 0, y: 26, w: 24, h: 2 },
+    );
+    sloList.forEach((slo, i) => {
+      const y = 28 + i * 6;
+      const label = slo.target !== undefined ? `${slo.name} — target ${slo.target}%` : slo.name;
+      add(
+        single(
+          label,
+          `${slo.indicator.trimEnd()}
+| fieldsAdd entitySli = arrayAvg(sli)
+| summarize sli = min(entitySli)`,
+          "sli",
+          [unit("sli", "percentage", "percent", null, 3, "%")],
+        ),
+        { x: 0, y, w: 6, h: 6 },
+      );
+      add(
+        line(`${label} — SLI over time`, slo.indicator, [unit("sli", "percentage", "percent", null, 2, "%")]),
+        { x: 6, y, w: 18, h: 6 },
+      );
+    });
+  }
 
   return {
     version: 16,

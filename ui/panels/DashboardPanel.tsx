@@ -14,6 +14,7 @@ import { KpiCard } from "../components/KpiCard";
 import { TextField } from "../components/Field";
 import { useSelection } from "../context/SelectionContext";
 import { useCreateAction } from "../hooks/useCreateAction";
+import { useSlos } from "../hooks/useSlos";
 import { ENTITY_TYPE_BY_KEY } from "../constants/entityTypes";
 import { DASHBOARD_TEMPLATES, buildValetDashboard } from "../utils/dashboard";
 
@@ -24,7 +25,17 @@ export const DashboardPanel: React.FC<{ startStep: number }> = ({ startStep }) =
 
   const [templateKey, setTemplateKey] = useState<string | null>(null);
   const [title, setTitle] = useState("");
-  const [sloNames, setSloNames] = useState("");
+  // SLOs bound to the dashboard — each becomes two tiles running the SLO's own SLI.
+  const { slos, isLoading: slosLoading, error: slosError } = useSlos();
+  const [sloIds, setSloIds] = useState<Set<string>>(() => new Set());
+  const toggleSlo = (id: string) =>
+    setSloIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const boundSlos = slos.filter((s) => sloIds.has(s.id) && s.indicator);
   const [createdId, setCreatedId] = useState<string | null>(null);
 
   const templates = DASHBOARD_TEMPLATES.map((t) => ({
@@ -43,9 +54,9 @@ export const DashboardPanel: React.FC<{ startStep: number }> = ({ startStep }) =
       typeKey: singleType,
       typeLabel: meta?.label ?? singleType,
       title: effectiveTitle,
-      sloNames: sloNames.split(",").map((s) => s.trim()).filter(Boolean),
+      slos: boundSlos.map((s) => ({ name: s.name, target: s.target, indicator: s.indicator! })),
     });
-  }, [template, singleType, selected, meta, effectiveTitle, sloNames]);
+  }, [template, singleType, selected, meta, effectiveTitle, boundSlos.map((s) => s.id).join(",")]);
 
   const tileCount = doc ? Object.keys(doc.tiles).length : 0;
   const scanning = doc
@@ -113,7 +124,11 @@ export const DashboardPanel: React.FC<{ startStep: number }> = ({ startStep }) =
         >
           <Flex flexDirection="column" gap={16}>
             <Flex gap={12} flexWrap="wrap">
-              <KpiCard label="Tiles" value={tileCount} subLabel="header, 5 headline values, 5 charts" />
+              <KpiCard
+                label="Tiles"
+                value={tileCount}
+                subLabel={boundSlos.length ? `VALET + ${boundSlos.length} SLO${boundSlos.length === 1 ? "" : "s"}` : "header, 5 headline values, 5 charts"}
+              />
               <KpiCard
                 label="Metric tiles"
                 value={tileCount - scanning - 1}
@@ -129,14 +144,39 @@ export const DashboardPanel: React.FC<{ startStep: number }> = ({ startStep }) =
             </Flex>
             <Grid gridTemplateColumns="repeat(auto-fit, minmax(240px, 1fr))" gap={16}>
               <TextField label="Dashboard name" value={title} onChange={setTitle} placeholder={effectiveTitle} />
-              <TextField
-                label="SLO names to list in the header (optional)"
-                value={sloNames}
-                onChange={setSloNames}
-                placeholder="RED · Service availability, RED · Service performance"
-                hint="Comma separated. Purely descriptive."
-              />
             </Grid>
+
+            <Flex flexDirection="column" gap={8}>
+              <Text textStyle="base-emphasized">Bind SLOs to this dashboard</Text>
+              <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>
+                Each one becomes two tiles — current value and timeline — running the SLI query stored
+                in the SLO, so the dashboard and the SLO app can never disagree.
+              </Text>
+              {slosError ? (
+                <Text textStyle="small" style={{ color: Colors.Text.Critical.Default }}>Couldn't list SLOs: {slosError}</Text>
+              ) : slosLoading ? (
+                <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>Loading SLOs…</Text>
+              ) : slos.length === 0 ? (
+                <Text textStyle="small" style={{ color: Colors.Text.Neutral.Subdued }}>
+                  No SLOs in this environment yet — create some with the SLO action first.
+                </Text>
+              ) : (
+                <Grid gridTemplateColumns="repeat(auto-fit, minmax(260px, 1fr))" gap={8}>
+                  {slos.map((s) => (
+                    <ChoiceCard
+                      key={s.id}
+                      multi
+                      selected={sloIds.has(s.id)}
+                      disabled={!s.indicator}
+                      title_={!s.indicator ? "This SLO has no custom SLI query to plot" : undefined}
+                      title={s.name}
+                      description={s.target !== undefined ? `target ${s.target}%` : "no target"}
+                      onClick={() => toggleSlo(s.id)}
+                    />
+                  ))}
+                </Grid>
+              )}
+            </Flex>
             <Callout tone="info">
               <strong>Tickets are Davis problems.</strong> Dynatrace has no ticket system, so the T
               in VALET shows the problems that affected these entities — the nearest honest proxy.

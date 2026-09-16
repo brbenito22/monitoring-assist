@@ -68,10 +68,14 @@ Use `npm ci` (respeita o `package-lock.json`) em vez de `npm install`. Se der co
 npm ci --legacy-peer-deps
 ```
 
-## 4. Type-check
+## 4. Type-check e testes
 
 ```bash
-npx tsc --noEmit -p ui/tsconfig.json
+npm run typecheck
+```
+
+```bash
+npm test
 ```
 
 Precisa passar sem erros antes do deploy.
