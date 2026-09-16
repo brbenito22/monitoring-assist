@@ -1,0 +1,28 @@
+# Type-check and unit tests on every push and pull request.
+#
+# No build or deploy here on purpose: `dt-app build` needs a real
+# environmentUrl, and the committed one is the <YOUR_TENANT_ID> placeholder —
+# a build in CI would fail by design. The tests cover the pure builders
+# (queries, payloads, math); the manifest is validated at deploy time.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - run: npm run typecheck
+      - run: npm test

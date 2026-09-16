@@ -1,5 +1,7 @@
 # Monitoring Assist
 
+[![CI](https://github.com/brbenito22/monitoring-assist/actions/workflows/ci.yml/badge.svg)](https://github.com/brbenito22/monitoring-assist/actions/workflows/ci.yml)
+
 A Dynatrace app that turns *"which services should I monitor?"* into working configuration.
 
 Pick entities, pick what you want, and the app generates and applies the real thing — a **Segment**, an **SLO** (with an optional error-budget burn-rate alert), an **Anomaly detector**, or a **Site Reliability Guardian**. Every query it emits is validated against live data before you commit to it.
