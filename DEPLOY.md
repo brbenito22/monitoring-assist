@@ -121,6 +121,20 @@ Por isso o app monta o payload do workflow para você colar no app **Workflows**
 
 ---
 
+## MWMBR — alerta multi-janela por workflow (opcional)
+
+O app não pode criar workflows (escopo reservado à Dynatrace), mas um token de plataforma pode. O script cria um workflow **inativo** que avalia as três camadas do Google a cada 5 minutos:
+
+```bash
+node scripts/mwmbr-workflow.mjs --env https://<TENANT_ID>.apps.dynatrace.com --service SERVICE-XXXX --target 99.5
+```
+
+Token em `DT_PLATFORM_TOKEN` ou em `~/.dynatrace-token`, com `automation:workflows:write`. Opções: `--service` repetível, `--owner <identificador>` para `dt.owner`, `--name`, `--activate`.
+
+**Custo:** JavaScript só é permitido em workflow **STANDARD**, que é cobrado por execução — a cada 5 minutos são 288 por dia. Ative pelo app Workflows quando estiver confortável com isso; até lá ele fica gravado mas parado.
+
+Cada execução devolve as taxas por janela, o tráfego (para distinguir "sem erro" de "sem tráfego") e o relatório de ingest do evento — uma rejeição aparece no resultado, não some.
+
 ## Diferenças entre ambientes
 
 O app se adapta, mas o que você vê muda conforme o tenant:

@@ -28,6 +28,10 @@ Plus, on the SLO side:
 
 And a ready-to-paste **workflow payload** that validates a guardian.
 
+Outside the app, because the platform reserves workflow creation for Dynatrace-built apps:
+
+- **`scripts/mwmbr-workflow.mjs`** — Google's multiwindow, multi-burn-rate alerting as a scheduled workflow: 14.4× over 1h/5m, 6× over 6h/30m, 1× over 3d/6h. A detector can watch at most one hour; this can't be one. Verified end to end on a live tenant — the ticket tier fired on a service burning at 2.3×, and the event landed in Grail bound to the service.
+
 ---
 
 ## The flow
