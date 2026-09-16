@@ -108,7 +108,7 @@ Incremente `app.app.version` no `app.config.json` a cada deploy.
 
 ## Escopos
 
-Os 16 escopos são declarados no `app.config.json` e concedidos na instalação — não há nada a configurar manualmente.
+Os 18 escopos são declarados no `app.config.json` e concedidos na instalação — não há nada a configurar manualmente.
 
 Um escopo **não** pode ser declarado: `automation:workflows:write` é reservado a apps da própria Dynatrace. Tentar declará-lo faz a instalação falhar com:
 
